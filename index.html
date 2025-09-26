@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Castle Hot Springs — Itinerary Builder</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="brand"><h1>Itinerary Builder</h1></div>
+    <div class="top-actions">
+      <button class="btn ghost" id="copyBtn" title="Copy itinerary">Copy</button>
+      <button class="btn danger" id="resetBtn" title="Clear dates & items">Clear All</button>
+    </div>
+  </header>
+
+  <main class="app-grid">
+    <!-- LEFT: Calendar -->
+    <aside class="panel calendar">
+      <div class="panel-title">Calendar</div>
+
+      <!-- Fixed, responsive header controls with stacked month/year -->
+      <div class="cal-controls">
+        <div class="cal-side">
+          <button class="icon-btn round" id="prevYear" title="Previous year">«</button>
+          <button class="icon-btn round" id="prevMonth" title="Previous month">‹</button>
+        </div>
+
+        <div class="cal-center">
+          <div class="cal-title-wrap">
+            <span class="cal-title-month" id="calTitleMonth">Month</span>
+            <span class="cal-title-year"  id="calTitleYear">YYYY</span>
+          </div>
+        </div>
+
+        <div class="cal-side">
+          <button class="icon-btn round" id="nextMonth" title="Next month">›</button>
+          <button class="icon-btn round" id="nextYear" title="Next year">»</button>
+        </div>
+      </div>
+
+      <div class="cal-header-row">
+        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div>
+        <div>Thu</div><div>Fri</div><div>Sat</div>
+      </div>
+
+      <div class="cal-grid" id="calGrid" aria-label="Calendar"></div>
+
+      <div class="range-controls">
+        <button class="btn small" id="setArrivalBtn">Set Arrival</button>
+        <button class="btn small" id="setDepartureBtn">Set Departure</button>
+        <button class="btn small" id="todayBtn">Today</button>
+      </div>
+
+      <div class="range-legend">
+        <span class="dot arrival"></span> Arrival
+        <span class="dot departure"></span> Departure
+        <span class="dot inrange"></span> In-stay
+      </div>
+    </aside>
+
+    <!-- CENTER: Guests + IO + Activities -->
+    <section class="panel builder">
+      <!-- Guests bar -->
+      <div class="guests-bar">
+        <div class="guests-title">Guests</div>
+        <div class="guests-chips" id="guestsChips"></div>
+        <div class="guests-actions">
+          <button class="btn small secondary" id="addGuestBtn">+ Add Guest</button>
+        </div>
+      </div>
+
+      <!-- Check-in/out editor -->
+      <div class="io-editor">
+        <div class="io-row">
+          <div class="io-label">Arrival</div>
+          <div class="io-fields">
+            <input id="ioCheckInTime" class="io-time" value="4:00pm" />
+            <span class="io-static">Guaranteed Check-In</span>
+            <input id="ioCheckInNote" class="io-note" value="Welcome to arrive as early as 12:00pm" />
+          </div>
+        </div>
+        <div class="io-row">
+          <div class="io-label">Departure</div>
+          <div class="io-fields">
+            <input id="ioCheckOutTime" class="io-time" value="11:00am" />
+            <span class="io-static">Check-Out</span>
+            <input id="ioCheckOutNote" class="io-note" value="Welcome to stay on property until 1:00pm" />
+          </div>
+        </div>
+        <div class="io-row">
+          <div class="io-label">Expected</div>
+          <div class="io-fields expected">
+            <label>Arrival <input id="expectedArrival" class="timefield" readonly placeholder="—" /></label>
+            <label>Departure <input id="expectedDeparture" class="timefield" readonly placeholder="—" /></label>
+            <span class="muted small">Activities outside this window will show a soft warning.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-title">Activities</div>
+
+      <div class="day-header">
+        <div id="dayTitle" class="day-title">Wednesday, September 10<sup>th</sup></div>
+        <div id="lunchHint" class="pill hint" hidden>Lunch window under 60 min (11–2)</div>
+      </div>
+
+      <div class="add-row">
+        <button class="btn" id="addSpa">Spa Service</button>
+        <button class="btn" id="addDinner">Dinner</button>
+        <button class="btn ghost" id="addActivity">Activity</button>
+      </div>
+
+      <ul class="day-list" id="dayList">
+        <li class="empty">No items for this day. Add one above.</li>
+      </ul>
+    </section>
+
+    <!-- RIGHT: Preview -->
+    <aside class="panel preview">
+      <div class="panel-title">Preview</div>
+      <div id="itineraryBody" class="preview-body">
+        <h3 class="preview-heading">Current Itinerary:</h3>
+        <p class="muted">Select <strong>Set Arrival</strong> and <strong>Set Departure</strong> to begin.</p>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden>Copied</div>
+
+  <!-- Dinner Time Picker Modal -->
+  <div id="modal-dinner" class="modal" hidden>
+    <div class="modal-backdrop" data-dismiss="modal"></div>
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="dinnerTitle">
+      <div class="modal-header">
+        <h3 id="dinnerTitle">Choose Dinner Time</h3>
+      </div>
+
+      <div class="modal-body">
+        <div class="wheel">
+          <!-- Hours (5..8) -->
+          <div id="dinnerHourCol" class="picker-col" aria-label="Hour"></div>
+          <!-- Minutes (00/15/30) -->
+          <div id="dinnerMinuteCol" class="picker-col" aria-label="Minute"></div>
+          <!-- PM only (implicit) -->
+          <div class="pm-col"><div class="picker-item">PM</div></div>
+          <div class="picker-mask"></div>
+        </div>
+        <div class="picker-hint">Dinner times every 15 minutes, 5:30–8:00pm (no 6:45pm).</div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn secondary" data-dismiss="modal">Cancel</button>
+        <button id="confirmDinnerBtn" class="btn">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spa Picker Modal -->
+  <div id="modal-spa" class="modal" hidden>
+    <div class="modal-backdrop" data-dismiss="modal"></div>
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="spaTitle">
+      <div class="modal-header">
+        <h3 id="spaTitle">Add Spa Service</h3>
+      </div>
+
+      <div class="modal-body">
+        <div class="spa-grid">
+          <label>
+            Service
+            <select id="spaService">
+              <option>Castle Hot Springs Custom Massage</option>
+              <option>Castle Custom Facial</option>
+              <option>Body Renewal</option>
+            </select>
+          </label>
+          <label>
+            Duration
+            <select id="spaDuration">
+              <option value="60">60-Minute</option>
+              <option value="90">90-Minute</option>
+              <option value="120">120-Minute</option>
+            </select>
+          </label>
+          <label>
+            Therapist
+            <select id="spaPref">
+              <option value="NP">No Preference</option>
+              <option value="FT">Female Therapist</option>
+              <option value="MT">Male Therapist</option>
+            </select>
+          </label>
+          <label>
+            Cabanas
+            <select id="spaCabana">
+              <option value="same">Same Cabanas</option>
+              <option value="separate">Separate Cabanas</option>
+            </select>
+          </label>
+          <label class="time-full">
+            Start Time (8:00am–7:00pm)
+            <div class="wheel" id="spaWheel">
+              <div id="spaHourCol" class="picker-col" aria-label="Hour"></div>
+              <div id="spaMinuteCol" class="picker-col" aria-label="Minute"></div>
+              <div id="spaPeriodCol" class="picker-col" aria-label="Period"></div>
+              <div class="picker-mask"></div>
+            </div>
+          </label>
+        </div>
+        <div class="picker-hint">Assigned to currently toggled guest chips.</div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn secondary" data-dismiss="modal">Cancel</button>
+        <button id="confirmSpaBtn" class="btn">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic Time Picker Modal (Expected Arr/Dep) -->
+  <div id="modal-time" class="modal" hidden>
+    <div class="modal-backdrop" data-dismiss="modal"></div>
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="timeTitle">
+      <div class="modal-header">
+        <h3 id="timeTitle">Select Time</h3>
+      </div>
+      <div class="modal-body">
+        <div class="wheel" id="genTimeWheel">
+          <div id="genHourCol" class="picker-col" aria-label="Hour"></div>
+          <div id="genMinuteCol" class="picker-col" aria-label="Minute"></div>
+          <div id="genPeriodCol" class="picker-col" aria-label="Period"></div>
+          <div class="picker-mask"></div>
+        </div>
+        <div class="picker-hint">Scroll to select. Infinite loop.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" data-dismiss="modal">Cancel</button>
+        <button id="confirmGenTimeBtn" class="btn">Set</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
