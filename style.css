@@ -250,6 +250,23 @@ h1,h2,h3 { margin: 0; }
 .picker-hint{ color: var(--muted); font-size: 12px; margin-top: 8px; }
 
 /* Wheel */
+.wheel{
+  position: relative;
+  display:grid;
+  gap: 12px;
+  padding: 16px 12px;
+  border: 1px solid rgba(58,125,124,.25);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f5faf9 0%, #ffffff 52%, #f5faf9 100%);
+  box-shadow: 0 20px 35px rgba(58,125,124,.12), 0 2px 8px rgba(11,13,16,.05);
+  overflow: hidden;
+}
+.time-wheel{
+  --wheel-period-width: 86px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(var(--wheel-period-width), 0.8fr);
+}
+.picker-mask{
+  position:absolute;
 .wheel{ position: relative; display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px;
   padding: 14px 10px; border: 1px solid rgba(58,125,124,.25); border-radius: 16px; background: linear-gradient(180deg, #f5faf9 0%, #ffffff 55%, #f5faf9 100%); box-shadow: 0 20px 35px rgba(58,125,124,.12), 0 2px 8px rgba(11,13,16,.05); overflow: hidden; }
 .picker-mask{ position:absolute; inset:4px 10px; pointer-events:none; border-radius:12px; z-index:0;

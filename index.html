@@ -140,13 +140,13 @@
       </div>
 
       <div class="modal-body">
-        <div class="wheel">
+        <div class="wheel time-wheel">
           <!-- Hours (5..8) -->
           <div id="dinnerHourCol" class="picker-col" aria-label="Hour"></div>
           <!-- Minutes (00/15/30) -->
           <div id="dinnerMinuteCol" class="picker-col" aria-label="Minute"></div>
-          <!-- PM only (implicit) -->
-          <div class="pm-col"><div class="picker-item">PM</div></div>
+          <!-- Period (PM only) -->
+          <div id="dinnerPeriodCol" class="picker-col period-col" aria-label="Period"></div>
           <div class="picker-mask"></div>
         </div>
         <div class="picker-hint">Dinner times every 15 minutes, 5:30–8:00pm (no 6:45pm).</div>
@@ -202,10 +202,10 @@
           </label>
           <label class="time-full">
             Start Time (8:00am–7:00pm)
-            <div class="wheel" id="spaWheel">
+            <div class="wheel time-wheel" id="spaWheel">
               <div id="spaHourCol" class="picker-col" aria-label="Hour"></div>
               <div id="spaMinuteCol" class="picker-col" aria-label="Minute"></div>
-              <div id="spaPeriodCol" class="picker-col" aria-label="Period"></div>
+              <div id="spaPeriodCol" class="picker-col period-col" aria-label="Period"></div>
               <div class="picker-mask"></div>
             </div>
           </label>
@@ -228,10 +228,10 @@
         <h3 id="timeTitle">Select Time</h3>
       </div>
       <div class="modal-body">
-        <div class="wheel" id="genTimeWheel">
+        <div class="wheel time-wheel" id="genTimeWheel">
           <div id="genHourCol" class="picker-col" aria-label="Hour"></div>
           <div id="genMinuteCol" class="picker-col" aria-label="Minute"></div>
-          <div id="genPeriodCol" class="picker-col" aria-label="Period"></div>
+          <div id="genPeriodCol" class="picker-col period-col" aria-label="Period"></div>
           <div class="picker-mask"></div>
         </div>
         <div class="picker-hint">Scroll to select. Infinite loop.</div>
