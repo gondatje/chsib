@@ -105,6 +105,7 @@ class LoopWheel {
     this.ext  = [...this.base, ...this.base, ...this.base, ...this.base, ...this.base];
     this.itemH = 36; this.pad = 72;
     this.midStart = this.base.length * 2;
+    this._suspendSnap = false;
     this.build();
   }
   build(){
@@ -120,6 +121,7 @@ class LoopWheel {
   attachSnap(){
     let timer=null;
     this.col.addEventListener('scroll', ()=>{
+      if(this._suspendSnap) return;
       if(timer) clearTimeout(timer);
       timer = setTimeout(()=> this.snapAndRecenter(), 90);
     }, { passive:true });
@@ -139,17 +141,23 @@ class LoopWheel {
   snapAndRecenter(){
     const idx = this.indexAtCenter();
     const target = this.pad + idx*this.itemH;
+    this._suspendSnap = true;
     this.col.scrollTo({ top: target, behavior:'smooth' });
 
     const baseIdx = idx % this.base.length;
     const midIdx  = this.midStart + baseIdx;
     const midTop  = this.pad + midIdx*this.itemH;
-    setTimeout(()=> this.col.scrollTo({ top: midTop, behavior:'auto' }), 140);
+    setTimeout(()=>{
+      this.col.scrollTo({ top: midTop, behavior:'auto' });
+      setTimeout(()=>{ this._suspendSnap = false; }, 90);
+    }, 140);
   }
   scrollToBaseIndex(baseIdx, instant=false){
     const midIdx = this.midStart + (baseIdx % this.base.length);
     const top = this.pad + midIdx*this.itemH;
+    this._suspendSnap = true;
     this.col.scrollTo({ top, behavior: instant?'auto':'smooth' });
+    setTimeout(()=>{ this._suspendSnap = false; }, instant ? 0 : 180);
   }
   selectedBase(){
     const idx = this.indexAtCenter();
@@ -209,12 +217,7 @@ function renderGuests(){
     renderGuests(); renderPreview();
   });
 
-  // demo defaults so you can test immediately
-  if(State.guests.length===0){
-    State.guests.push({ id: State.nextGuestId++, name: 'Brittany', active: true, primary: true });
-    State.guests.push({ id: State.nextGuestId++, name: 'Megan', active: true, primary: false });
-    renderGuests();
-  }
+  renderGuests();
 })();
 
 /* =========================
