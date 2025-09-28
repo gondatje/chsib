@@ -276,8 +276,9 @@ h1,h2,h3 { margin: 0; }
   border-radius:12px; background: rgba(255,255,255,.96);
   box-shadow:0 0 0 1px rgba(58,125,124,.35) inset, 0 8px 16px rgba(58,125,124,.12); }
 .picker-col{ position: relative; height: 180px; overflow-y: auto; overscroll-behavior: contain; z-index:1;
-  scrollbar-width: none; -webkit-overflow-scrolling: touch; touch-action: pan-y; scroll-snap-type: y proximity;
-  scroll-padding-block: 50%; outline: none; padding-inline:2px; }
+  scrollbar-width: none; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  scroll-snap-type: y mandatory; scroll-snap-stop: always; scroll-padding-block: 50%;
+  outline: none; padding-inline:2px; }
 .picker-col::-webkit-scrollbar{ display:none; }
 .picker-col:focus-visible{ box-shadow: 0 0 0 2px rgba(58,125,124,.25) inset; border-radius: 12px; }
 .picker-item{ height: 40px; display:flex; align-items:center; justify-content:center; font-weight: 600; color: var(--muted);
