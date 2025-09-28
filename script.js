@@ -341,6 +341,103 @@ class LoopWheel {
   }
 }
 
+function createTimeWheelController({ hourSelector, minuteSelector, periodSelector, hours, minutes, periods, defaultSelection={} }){
+  const config = {
+    hourSelector,
+    minuteSelector,
+    periodSelector,
+    hours: Array.isArray(hours) && hours.length ? hours.slice() : ['12'],
+    minutes: Array.isArray(minutes) && minutes.length ? minutes.slice() : ['00'],
+    periods: Array.isArray(periods) && periods.length ? periods.slice() : ['AM', 'PM'],
+  };
+
+  const fallback = {
+    hour: defaultSelection.hour && config.hours.includes(defaultSelection.hour) ? defaultSelection.hour : config.hours[0],
+    minute: defaultSelection.minute && config.minutes.includes(defaultSelection.minute) ? defaultSelection.minute : config.minutes[0],
+    period: defaultSelection.period && config.periods.includes(defaultSelection.period) ? defaultSelection.period : config.periods[0],
+  };
+
+  const getEl = (sel)=> typeof sel === 'string' ? document.querySelector(sel) : sel;
+
+  function scrollToValue(wheel, values, desired, fallbackValue, instant){
+    if(!wheel || !values.length) return;
+    let idx = values.indexOf(desired);
+    if(idx === -1){
+      idx = values.indexOf(fallbackValue);
+      if(idx === -1) idx = 0;
+    }
+    wheel.scrollToBaseIndex(idx, instant);
+  }
+
+  return {
+    config: { ...config, defaultSelection: { ...fallback } },
+    wheels: null,
+    ensure(){
+      if(this.wheels) return;
+      const hourEl   = getEl(config.hourSelector);
+      const minuteEl = getEl(config.minuteSelector);
+      const periodEl = getEl(config.periodSelector);
+      if(!hourEl || !minuteEl || !periodEl) return;
+      this.wheels = {
+        hour:   new LoopWheel(hourEl, config.hours),
+        minute: new LoopWheel(minuteEl, config.minutes),
+        period: new LoopWheel(periodEl, config.periods),
+      };
+    },
+    setSelection(parts, instant=true){
+      this.ensure();
+      if(!this.wheels) return;
+      const target = {
+        hour: parts?.hour ?? this.config.defaultSelection.hour,
+        minute: parts?.minute ?? this.config.defaultSelection.minute,
+        period: parts?.period ?? this.config.defaultSelection.period,
+      };
+      scrollToValue(this.wheels.hour,   this.config.hours,   target.hour,   this.config.defaultSelection.hour,   instant);
+      scrollToValue(this.wheels.minute, this.config.minutes, target.minute, this.config.defaultSelection.minute, instant);
+      scrollToValue(this.wheels.period, this.config.periods, target.period, this.config.defaultSelection.period, instant);
+    },
+    setFromMinutes(mins, instant=true){
+      const parts = timePartsFromMins(mins);
+      if(parts){
+        this.setSelection(parts, instant);
+      } else {
+        this.setSelection(this.config.defaultSelection, instant);
+      }
+    },
+    read(){
+      this.ensure();
+      if(!this.wheels){
+        return { ...this.config.defaultSelection };
+      }
+      return {
+        hour: this.wheels.hour.selectedBase() ?? this.config.defaultSelection.hour,
+        minute: this.wheels.minute.selectedBase() ?? this.config.defaultSelection.minute,
+        period: this.wheels.period.selectedBase() ?? this.config.defaultSelection.period,
+      };
+    }
+  };
+}
+
+function timePartsFromMins(mins){
+  if(typeof mins !== 'number' || Number.isNaN(mins)) return null;
+  let total = mins % (24 * 60);
+  if(total < 0) total += 24 * 60;
+  const h24 = Math.floor(total / 60);
+  const minute = String(total % 60).padStart(2, '0');
+  const period = h24 >= 12 ? 'PM' : 'AM';
+  let hour = h24 % 12;
+  if(hour === 0) hour = 12;
+  return { hour: String(hour), minute, period };
+}
+
+function parseTimeLabelToParts(label){
+  const clean = stripOrdinals((label || '').trim()).replace(/\s+/g,'').toUpperCase();
+  const match = clean.match(/^([1-9]|1[0-2]):([0-5][0-9])([AP]M)$/);
+  if(!match) return null;
+  const [, rawHour, minute, period] = match;
+  return { hour: String(parseInt(rawHour, 10)), minute, period };
+}
+
 /* =========================
    Guests
    ========================= */
@@ -813,25 +910,29 @@ function showToast(){ const t=$$('#toast'); if(!t) return; t.hidden=false; setTi
 /* =========================
    Dinner Picker (looping)
    ========================= */
+const dinnerTimeController = createTimeWheelController({
+  hourSelector: '#dinnerHourCol',
+  minuteSelector: '#dinnerMinuteCol',
+  periodSelector: '#dinnerPeriodCol',
+  hours: ['5','6','7','8'],
+  minutes: ['00','15','30'],
+  periods: ['PM'],
+  defaultSelection: { hour: '7', minute: '00', period: 'PM' }
+});
+
 const DinnerPicker = {
+  lastSelection: null,
   open(){
     const modal = $$('#modal-dinner'); if(!modal) return;
-    if(!this.hourWheel){
-      this.hourWheel = new LoopWheel($$('#dinnerHourCol'), ['5','6','7','8']);
-    }
-    if(!this.minuteWheel){
-      this.minuteWheel = new LoopWheel($$('#dinnerMinuteCol'), ['00','15','30']); // no 45 -> 6:45 impossible
-    }
-    // Default 7:00pm each open
-    this.hourWheel.scrollToBaseIndex(2, true);
-    this.minuteWheel.scrollToBaseIndex(0, true);
+    const target = this.lastSelection || dinnerTimeController.config.defaultSelection;
+    dinnerTimeController.setSelection(target, true);
     modal.hidden = false;
   },
   close(){ const modal=$$('#modal-dinner'); if(modal) modal.hidden=true; },
   read(){
-    const h = parseInt(this.hourWheel.selectedBase(),10);
-    const m = parseInt(this.minuteWheel.selectedBase(),10);
-    return { hour:h, minute:m }; // always PM
+    const sel = dinnerTimeController.read();
+    this.lastSelection = sel;
+    return sel;
   }
 };
 
@@ -847,7 +948,7 @@ const DinnerPicker = {
 
   confirm?.addEventListener('click', ()=>{
     const sel = DinnerPicker.read();
-    const mins = (12 + (sel.hour % 12)) * 60 + sel.minute; // PM only
+    const mins = hhmmAPToMins(sel.hour, sel.minute, sel.period);
     const { startMins, endMins } = Config.dinner;
 
     if(mins < startMins || mins > endMins){ alert('Dinner must be between 5:30pm and 8:00pm.'); return; }
@@ -880,38 +981,22 @@ const DinnerPicker = {
 /* =========================
    Spa Picker (looping 12h AM/PM, 5-min steps)
    ========================= */
-function buildSpaWheels(){
-  const hours12 = ['8','9','10','11','12','1','2','3','4','5','6','7']; // 8am..7pm
-  const mins5   = ['00','05','10','15','20','25','30','35','40','45','50','55'];
-  const periods = ['AM','PM'];
-
-  return {
-    hour:   new LoopWheel($$('#spaHourCol'), hours12),
-    minute: new LoopWheel($$('#spaMinuteCol'), mins5),
-    period: new LoopWheel($$('#spaPeriodCol'), periods),
-    setDefault(){
-      // Default 11:00 AM
-      this.hour.scrollToBaseIndex(3, true);   // '11'
-      this.minute.scrollToBaseIndex(0, true); // '00'
-      this.period.scrollToBaseIndex(0, true); // 'AM'
-    },
-    read(){
-      return {
-        hour: this.hour.selectedBase(),
-        minute: this.minute.selectedBase(),
-        period: this.period.selectedBase()
-      };
-    }
-  };
-}
+const spaTimeController = createTimeWheelController({
+  hourSelector: '#spaHourCol',
+  minuteSelector: '#spaMinuteCol',
+  periodSelector: '#spaPeriodCol',
+  hours: ['8','9','10','11','12','1','2','3','4','5','6','7'],
+  minutes: ['00','05','10','15','20','25','30','35','40','45','50','55'],
+  periods: ['AM','PM'],
+  defaultSelection: { hour: '11', minute: '00', period: 'AM' }
+});
 
 const SpaPicker = {
+  lastSelection: null,
   open(){
     const modal = $$('#modal-spa'); if(!modal) return;
-    if(!this.wheels){
-      this.wheels = buildSpaWheels();
-    }
-    this.wheels.setDefault();
+    const target = this.lastSelection || spaTimeController.config.defaultSelection;
+    spaTimeController.setSelection(target, true);
     modal.hidden = false;
   },
   close(){ const modal=$$('#modal-spa'); if(modal) modal.hidden=true; },
@@ -932,8 +1017,7 @@ const SpaPicker = {
     const duration = parseInt($$('#spaDuration').value, 10);
     const pref     = $$('#spaPref').value;      // NP / FT / MT
     const cabana   = $$('#spaCabana').value;    // same / separate
-    if(!SpaPicker.wheels){ alert('Time picker not ready.'); return; }
-    const t = SpaPicker.wheels.read();
+    const t = spaTimeController.read();
     const mins = hhmmAPToMins(t.hour, t.minute, t.period); // 12h -> mins
 
     // Limit: 8:00am (480) to 7:00pm (1140)
@@ -962,6 +1046,7 @@ const SpaPicker = {
 
     list.sort((a,b)=> a.startMins - b.startMins);
     renderDayList(iso); renderPreview();
+    SpaPicker.lastSelection = t;
     SpaPicker.close();
   });
 })();
@@ -969,48 +1054,37 @@ const SpaPicker = {
 /* =========================
    Generic Time Picker for Expected Arr/Dep
    ========================= */
+const genericTimeController = createTimeWheelController({
+  hourSelector: '#genHourCol',
+  minuteSelector: '#genMinuteCol',
+  periodSelector: '#genPeriodCol',
+  hours: ['1','2','3','4','5','6','7','8','9','10','11','12'],
+  minutes: ['00','05','10','15','20','25','30','35','40','45','50','55'],
+  periods: ['AM','PM'],
+  defaultSelection: { hour: '3', minute: '00', period: 'PM' }
+});
+
 const GenTimePicker = {
-  hourValues: ['1','2','3','4','5','6','7','8','9','10','11','12'],
-  minuteValues: ['00','05','10','15','20','25','30','35','40','45','50','55'],
-  periodValues: ['AM','PM'],
+  target: null,
+  lastSelection: null,
   open(targetInput, title='Select Time'){
     this.target = targetInput;
     $$('#timeTitle').textContent = title;
-    if(!this.hour){
-      this.hour   = new LoopWheel($$('#genHourCol'), this.hourValues);
-      this.minute = new LoopWheel($$('#genMinuteCol'), this.minuteValues);
-      this.period = new LoopWheel($$('#genPeriodCol'), this.periodValues);
+    const parsed = parseTimeLabelToParts(targetInput?.value);
+    if(parsed){
+      genericTimeController.setSelection(parsed, true);
+    } else if(this.lastSelection){
+      genericTimeController.setSelection(this.lastSelection, true);
+    } else {
+      genericTimeController.setSelection(genericTimeController.config.defaultSelection, true);
     }
-    this.setInitialPosition();
     $$('#modal-time').hidden = false;
   },
   close(){ $$('#modal-time').hidden = true; this.target = null; },
   read(){
-    return {
-      hour: this.hour.selectedBase(),
-      minute: this.minute.selectedBase(),
-      period: this.period.selectedBase()
-    };
-  },
-  setInitialPosition(){
-    const text = stripOrdinals((this.target?.value || '').trim()).replace(/\s+/g,'').toUpperCase();
-    const match = text.match(/^([1-9]|1[0-2]):([0-5][0-9])([AP]M)$/);
-    let hourIdx = 2, minIdx = 0, periodIdx = 1; // default 3:00 PM
-    if(match){
-      const [, h, m, p] = match;
-      const period = p === 'AM' ? 'AM' : 'PM';
-      const targetHour = String(parseInt(h,10));
-      const targetMinute = m;
-      const hIdx = this.hourValues.indexOf(targetHour);
-      const mIdx = this.minuteValues.indexOf(targetMinute);
-      const pIdx = this.periodValues.indexOf(period);
-      if(hIdx !== -1) hourIdx = hIdx;
-      if(mIdx !== -1) minIdx = mIdx;
-      if(pIdx !== -1) periodIdx = pIdx;
-    }
-    this.hour.scrollToBaseIndex(hourIdx, true);
-    this.minute.scrollToBaseIndex(minIdx, true);
-    this.period.scrollToBaseIndex(periodIdx, true);
+    const sel = genericTimeController.read();
+    this.lastSelection = sel;
+    return sel;
   }
 };
 
