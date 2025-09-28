@@ -417,6 +417,7 @@ function parseTimeLabelToParts(label){
    Guests
    ========================= */
 function activeGuestIds(){ return State.guests.filter(g=>g.active).map(g=>g.id); }
+function allGuestIds(){ return State.guests.map(g=>g.id); }
 function allGuestsActive(){ return State.guests.length>0 && State.guests.every(g=>g.active); }
 
 function renderGuests(){
@@ -462,7 +463,7 @@ function renderGuests(){
     if(!input) return;
     const g = { id: State.nextGuestId++, name: input, active: true, primary: State.guests.length===0 };
     State.guests.push(g);
-    renderGuests(); renderPreview();
+    renderGuests(); renderDayList(isoFor(State.selectedDate)); renderPreview();
   });
 
   renderGuests();
@@ -695,15 +696,32 @@ function renderDayList(iso){
     lunchHint.hidden = true;
     if(list.length){
       const windowStart = 11*60, windowEnd = 14*60;
-      let busy = 0;
-      for(let i=0;i<list.length;i++){
-        const s = Math.max(list[i].startMins, windowStart);
-        const e = Math.min((list[i].endMins ?? list[i].startMins+60), windowEnd);
-        if(e>s) busy += (e-s);
+      const intervals = [];
+      for(const item of list){
+        const start = Math.max(item.startMins, windowStart);
+        const end = Math.min((item.endMins ?? item.startMins + (item.duration || 60)), windowEnd);
+        if(end > start) intervals.push([start, end]);
       }
+
+      intervals.sort((a,b)=> a[0] - b[0]);
+
+      let busy = 0;
+      let current = null;
+      for(const [start, end] of intervals){
+        if(!current){
+          current = [start, end];
+        }else if(start <= current[1]){
+          current[1] = Math.max(current[1], end);
+        }else{
+          busy += current[1] - current[0];
+          current = [start, end];
+        }
+      }
+      if(current) busy += current[1] - current[0];
+
       const total = windowEnd - windowStart;
       const free = Math.max(0, total - busy);
-      if(free < 60) lunchHint.hidden = false;
+      if(intervals.length > 0 && free < 60) lunchHint.hidden = false;
     }
   }
 
@@ -722,10 +740,18 @@ function renderDayList(iso){
 
     // Participant tags (colored)
     let tags = '';
-    if(Array.isArray(it.participantIds) && State.guests.length > 0){
-      if(it.participantIds.length > 0){
+    const totalGuests = State.guests.length;
+    const participantSet = new Set(Array.isArray(it.participantIds) ? it.participantIds : []);
+    const hasAllGuests = totalGuests > 0 && State.guests.every(g => participantSet.has(g.id));
+
+    if(it.kind === 'dinner'){
+      if(totalGuests > 0) tags = `<span class="tag everyone">Everyone</span>`;
+    }else if(totalGuests > 0 && participantSet.size > 0){
+      if(hasAllGuests){
+        tags = `<span class="tag everyone">Everyone</span>`;
+      }else{
         const colored = State.guests
-          .filter(g=>it.participantIds.includes(g.id))
+          .filter(g=> participantSet.has(g.id))
           .map(g=>{
             const s = guestStyle(g);
             return `<span class="tag guest" style="background:${s.bg}; border-color:${s.border}; color:${s.text}">${firstName(g.name)}</span>`;
@@ -846,16 +872,16 @@ function renderPreview(){
         }
 
         // Names only if subset (not all)
-        if(Array.isArray(it.participantIds) && State.guests.length > 0){
-          const allCount = State.guests.length;
-          const subCount = it.participantIds.length;
-          if(subCount > 0 && subCount < allCount){
-            const names = State.guests
-              .filter(g=> it.participantIds.includes(g.id))
-              .map(g=> firstName(g.name))
-              .join(', ');
-            line += ` | ${names}`;
-          }
+        const totalGuests = State.guests.length;
+        const participantSet = new Set(Array.isArray(it.participantIds) ? it.participantIds : []);
+        const hasAllGuests = totalGuests > 0 && State.guests.every(g => participantSet.has(g.id));
+
+        if(it.kind !== 'dinner' && totalGuests > 0 && participantSet.size > 0 && !hasAllGuests){
+          const names = State.guests
+            .filter(g=> participantSet.has(g.id))
+            .map(g=> firstName(g.name))
+            .join(', ');
+          if(names) line += ` | ${names}`;
         }
 
         if(it.notes){ line += ` | ${it.notes}`; }
@@ -929,7 +955,7 @@ const DinnerPicker = {
     if(mins < startMins || mins > endMins){ alert('Dinner must be between 5:30pm and 8:00pm.'); return; }
 
     const iso = isoFor(State.selectedDate);
-    const participants = activeGuestIds();
+    const participants = allGuestIds();
     const start = mins, end = mins + 60;
 
     if(hasOverlap(iso, start, end, participants)){
