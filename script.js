@@ -100,68 +100,306 @@ const expectedDeparture = $$('#expectedDeparture');
    ========================= */
 class LoopWheel {
   constructor(colEl, baseItems){
-    this.col = colEl;
+    this.col  = colEl;
     this.base = baseItems.slice();
-    this.ext  = [...this.base, ...this.base, ...this.base, ...this.base, ...this.base];
-    this.itemH = 36; this.pad = 72;
-    this.midStart = this.base.length * 2;
-    this._suspendSnap = false;
+    if(!this.col || this.base.length === 0) return;
+
+    this.repeat = 9; // odd count so we can keep a true middle loop
+    if(this.repeat % 2 === 0) this.repeat += 1;
+    this.anchorLoops = Math.floor(this.repeat / 2);
+
+    this.itemH = 36;
+    this.pad   = 0;
+    this.loopSpan = this.itemH * this.base.length;
+
+    this.selectedBaseIndex = 0;
+    this.currentVirtualIndex = this.anchorLoops * this.base.length;
+
+    this.items = [];
+
+    this._dragging = false;
+    this._snapTimer = null;
+    this._programmatic = false;
+    this._programmaticTimer = null;
+    this._isAdjusting = false;
+
+    this.idBase = this.col.id || `wheel-${Math.random().toString(36).slice(2,8)}`;
+    if(!this.col.id) this.col.id = this.idBase;
+
+    this._handleResize = ()=> this.refreshMetrics(true);
+    this._boundScroll = ()=> this.handleScroll();
+    this._boundWheel = ()=> this.scheduleSnap();
+    this._boundPointerDown = ()=> this.handlePointerDown();
+    this._boundPointerUp = ()=> this.handlePointerUp();
+    this._boundKeyDown = (e)=> this.handleKey(e);
+
     this.build();
   }
-  build(){
-    this.col.innerHTML = '';
-    for(const it of this.ext){
-      const div = document.createElement('div');
-      div.className = 'picker-item';
-      div.textContent = it;
-      this.col.appendChild(div);
-    }
-    this.attachSnap();
-  }
-  attachSnap(){
-    let timer=null;
-    this.col.addEventListener('scroll', ()=>{
-      if(this._suspendSnap) return;
-      if(timer) clearTimeout(timer);
-      timer = setTimeout(()=> this.snapAndRecenter(), 90);
-    }, { passive:true });
-  }
-  indexAtCenter(){
-    const rect = this.col.getBoundingClientRect();
-    const cY = rect.top + rect.height/2;
-    let best=0, bestDist=1e9, i=0;
-    this.col.querySelectorAll('.picker-item').forEach((el)=>{
-      const r = el.getBoundingClientRect();
-      const d = Math.abs((r.top + r.height/2) - cY);
-      if(d < bestDist){ bestDist=d; best=i; }
-      i++;
-    });
-    return best;
-  }
-  snapAndRecenter(){
-    const idx = this.indexAtCenter();
-    const target = this.pad + idx*this.itemH;
-    this._suspendSnap = true;
-    this.col.scrollTo({ top: target, behavior:'smooth' });
 
-    const baseIdx = idx % this.base.length;
-    const midIdx  = this.midStart + baseIdx;
-    const midTop  = this.pad + midIdx*this.itemH;
-    setTimeout(()=>{
-      this.col.scrollTo({ top: midTop, behavior:'auto' });
-      setTimeout(()=>{ this._suspendSnap = false; }, 90);
-    }, 140);
+  build(){
+    this.renderLoopItems();
+    this.col.setAttribute('role', 'listbox');
+    this.col.setAttribute('aria-orientation', 'vertical');
+    if(!this.col.hasAttribute('tabindex')){
+      this.col.setAttribute('tabindex', '0');
+    }
+
+    this.refreshMetrics(true);
+    this.applySelection();
+    this.attachListeners();
   }
+
+  renderLoopItems(){
+    this.col.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    let counter = 0;
+    for(let loop=0; loop<this.repeat; loop++){
+      for(let idx=0; idx<this.base.length; idx++){
+        const label = this.base[idx];
+        const div = document.createElement('div');
+        div.className = 'picker-item';
+        div.textContent = label;
+        div.setAttribute('role', 'option');
+        div.dataset.baseIndex = String(idx);
+        div.dataset.virtualIndex = String(counter);
+        div.id = `${this.idBase}-item-${counter}`;
+        frag.appendChild(div);
+        counter++;
+      }
+    }
+    this.col.appendChild(frag);
+    this.items = Array.from(this.col.querySelectorAll('.picker-item'));
+    this.totalVirtual = this.items.length;
+    this.currentVirtualIndex = this.anchorLoops * this.base.length;
+  }
+
+  refreshMetrics(adjustScroll=false){
+    const sample = this.col.querySelector('.picker-item');
+    if(sample){
+      const rect = sample.getBoundingClientRect();
+      if(rect.height) this.itemH = rect.height;
+    }
+    if(!this.itemH) this.itemH = 36;
+    const colRect = this.col.getBoundingClientRect();
+    if(colRect.height){
+      const pad = Math.max(0, (colRect.height - this.itemH) / 2);
+      this.pad = pad;
+      this.col.style.paddingTop = `${pad}px`;
+      this.col.style.paddingBottom = `${pad}px`;
+    }
+    this.loopSpan = this.itemH * this.base.length;
+    if(adjustScroll){
+      this.scrollToBaseIndex(this.selectedBaseIndex, true);
+      this.ensureLoopWindow();
+    }
+  }
+
+  attachListeners(){
+    this.col.addEventListener('scroll', this._boundScroll, { passive:true });
+    this.col.addEventListener('wheel', this._boundWheel, { passive:true });
+    this.col.addEventListener('pointerdown', this._boundPointerDown);
+    this.col.addEventListener('pointerup', this._boundPointerUp);
+    this.col.addEventListener('pointercancel', this._boundPointerUp);
+    this.col.addEventListener('touchend', this._boundPointerUp, { passive:true });
+    this.col.addEventListener('keydown', this._boundKeyDown);
+
+    if(typeof ResizeObserver !== 'undefined'){
+      this.resizeObserver = new ResizeObserver(this._handleResize);
+      this.resizeObserver.observe(this.col);
+    }
+    window.addEventListener('resize', this._handleResize);
+    window.addEventListener('orientationchange', this._handleResize);
+  }
+
+  handlePointerDown(){
+    this._dragging = true;
+    if(this._snapTimer) clearTimeout(this._snapTimer);
+  }
+
+  handlePointerUp(){
+    if(!this._dragging) return;
+    this._dragging = false;
+    this.scheduleSnap();
+  }
+
+  prefersReducedMotion(){
+    try {
+      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch(err){
+      return false;
+    }
+  }
+
+  handleResize(){
+    const prevPad = this.pad;
+    const prevItemH = this.itemH;
+    this.refreshMetrics();
+    if(this.pad !== prevPad || this.itemH !== prevItemH){
+      this.scrollToBaseIndex(this.selectedBaseIndex, true);
+    }
+  }
+
+  handleKey(e){
+    if(e.key === 'ArrowUp' || e.key === 'PageUp'){
+      e.preventDefault();
+      this.nudge(-1);
+    } else if(e.key === 'ArrowDown' || e.key === 'PageDown'){
+      e.preventDefault();
+      this.nudge(1);
+    } else if(e.key === 'Home'){
+      e.preventDefault();
+      this.scrollToBaseIndex(0, true);
+    } else if(e.key === 'End'){
+      e.preventDefault();
+      this.scrollToBaseIndex(this.base.length-1, true);
+    }
+  }
+
+  nudge(delta){
+    if(!this.base.length) return;
+    let next = this.selectedBaseIndex + delta;
+    if(next < 0){
+      next = this.base.length - 1;
+    } else if(next >= this.base.length){
+      next = 0;
+    }
+    this.scrollToBaseIndex(next);
+  }
+
+  handleScroll(){
+    if(this._isAdjusting) return;
+    this.updateFromScroll();
+    this.ensureLoopWindow();
+    if(this._dragging) return;
+    if(this._programmatic) return;
+    this.scheduleSnap();
+  }
+
+  scheduleSnap(){
+    if(this._snapTimer) clearTimeout(this._snapTimer);
+    this._snapTimer = setTimeout(()=> this.snapToNearest(), 80);
+  }
+
+  snapToNearest(){
+    this._snapTimer = null;
+    if(!this.base.length || !this.itemH) return;
+    const raw = this.col.scrollTop / this.itemH;
+    const target = Math.round(raw);
+    const instant = Math.abs(raw - target) < 0.05;
+    this.scrollToVirtualIndex(target, instant);
+  }
+
+  updateFromScroll(){
+    if(!this.base.length || !this.itemH) return;
+    const raw = this.col.scrollTop / this.itemH;
+    if(!Number.isFinite(raw)) return;
+    const nearest = Math.round(raw);
+    const clamped = Math.max(0, Math.min(this.totalVirtual - 1, nearest));
+    if(clamped !== this.currentVirtualIndex){
+      this.currentVirtualIndex = clamped;
+      this.selectedBaseIndex = ((clamped % this.base.length) + this.base.length) % this.base.length;
+      this.applySelection();
+    }
+  }
+
+  applySelection(){
+    if(!this.items.length) return;
+    const targetVirtual = this.currentVirtualIndex;
+    let activeId = '';
+    this.items.forEach((el)=>{
+      const vIdx = Number(el.dataset.virtualIndex || '-1');
+      const selected = vIdx === targetVirtual;
+      if(selected) activeId = el.id;
+      el.classList.toggle('selected', selected);
+      el.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+    if(activeId){
+      this.col.setAttribute('aria-activedescendant', activeId);
+    } else {
+      this.col.removeAttribute('aria-activedescendant');
+    }
+  }
+
+  scrollToVirtualIndex(virtualIdx, instant=false){
+    if(!this.col || !this.base.length || !this.itemH) return;
+    const normalized = ((virtualIdx % this.totalVirtual) + this.totalVirtual) % this.totalVirtual;
+    this.currentVirtualIndex = normalized;
+    this.selectedBaseIndex = ((normalized % this.base.length) + this.base.length) % this.base.length;
+    this.applySelection();
+    const top = normalized * this.itemH;
+    const behavior = instant || this.prefersReducedMotion() ? 'auto' : 'smooth';
+    this._programmatic = true;
+    if(typeof this.col.scrollTo === 'function'){
+      this.col.scrollTo({ top, behavior });
+    } else {
+      this.col.scrollTop = top;
+      this._programmatic = false;
+      this.ensureLoopWindow();
+      return;
+    }
+    if(this._programmaticTimer) clearTimeout(this._programmaticTimer);
+    if(behavior === 'auto'){
+      this._programmatic = false;
+      this.ensureLoopWindow();
+    } else {
+      this._programmaticTimer = setTimeout(()=>{
+        this._programmatic = false;
+        this.ensureLoopWindow();
+      }, 220);
+    }
+  }
+
   scrollToBaseIndex(baseIdx, instant=false){
-    const midIdx = this.midStart + (baseIdx % this.base.length);
-    const top = this.pad + midIdx*this.itemH;
-    this._suspendSnap = true;
-    this.col.scrollTo({ top, behavior: instant?'auto':'smooth' });
-    setTimeout(()=>{ this._suspendSnap = false; }, instant ? 0 : 180);
+    if(!this.base.length) return;
+    const normalized = ((baseIdx % this.base.length) + this.base.length) % this.base.length;
+    const anchorVirtual = this.anchorLoops * this.base.length + normalized;
+    this.scrollToVirtualIndex(anchorVirtual, instant);
   }
+
+  ensureLoopWindow(){
+    if(!this.loopSpan || !this.base.length || !this.totalVirtual) return;
+    const st = this.col.scrollTop;
+    const min = this.loopSpan * 1;
+    const max = this.loopSpan * (this.repeat - 2);
+    let shiftLoops = 0;
+    if(st < min){
+      shiftLoops = this.anchorLoops;
+    } else if(st > max){
+      shiftLoops = -this.anchorLoops;
+    }
+    if(shiftLoops !== 0){
+      this._isAdjusting = true;
+      const shift = shiftLoops * this.loopSpan;
+      this.col.scrollTop = st + shift;
+      this.currentVirtualIndex += shiftLoops * this.base.length;
+      this.currentVirtualIndex = ((this.currentVirtualIndex % this.totalVirtual) + this.totalVirtual) % this.totalVirtual;
+      this._isAdjusting = false;
+      this.applySelection();
+    }
+  }
+
   selectedBase(){
-    const idx = this.indexAtCenter();
-    return this.base[idx % this.base.length];
+    return this.base[this.selectedBaseIndex] ?? null;
+  }
+
+  destroy(){
+    if(!this.col) return;
+    this.col.removeEventListener('scroll', this._boundScroll);
+    this.col.removeEventListener('wheel', this._boundWheel);
+    this.col.removeEventListener('pointerdown', this._boundPointerDown);
+    this.col.removeEventListener('pointerup', this._boundPointerUp);
+    this.col.removeEventListener('pointercancel', this._boundPointerUp);
+    this.col.removeEventListener('touchend', this._boundPointerUp);
+    this.col.removeEventListener('keydown', this._boundKeyDown);
+    if(this.resizeObserver){
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    window.removeEventListener('resize', this._handleResize);
+    window.removeEventListener('orientationchange', this._handleResize);
+    if(this._snapTimer) clearTimeout(this._snapTimer);
+    if(this._programmaticTimer) clearTimeout(this._programmaticTimer);
+    this.items = [];
   }
 }
 
@@ -640,9 +878,13 @@ function showToast(){ const t=$$('#toast'); if(!t) return; t.hidden=false; setTi
 const DinnerPicker = {
   open(){
     const modal = $$('#modal-dinner'); if(!modal) return;
-    this.hourWheel   = new LoopWheel($$('#dinnerHourCol'), ['5','6','7','8']);
-    this.minuteWheel = new LoopWheel($$('#dinnerMinuteCol'), ['00','15','30']); // no 45 -> 6:45 impossible
-    // Default 7:00pm
+    if(!this.hourWheel){
+      this.hourWheel = new LoopWheel($$('#dinnerHourCol'), ['5','6','7','8']);
+    }
+    if(!this.minuteWheel){
+      this.minuteWheel = new LoopWheel($$('#dinnerMinuteCol'), ['00','15','30']); // no 45 -> 6:45 impossible
+    }
+    // Default 7:00pm each open
     this.hourWheel.scrollToBaseIndex(2, true);
     this.minuteWheel.scrollToBaseIndex(0, true);
     modal.hidden = false;
@@ -728,7 +970,9 @@ function buildSpaWheels(){
 const SpaPicker = {
   open(){
     const modal = $$('#modal-spa'); if(!modal) return;
-    this.wheels = buildSpaWheels();
+    if(!this.wheels){
+      this.wheels = buildSpaWheels();
+    }
     this.wheels.setDefault();
     modal.hidden = false;
   },
@@ -788,16 +1032,18 @@ const SpaPicker = {
    Generic Time Picker for Expected Arr/Dep
    ========================= */
 const GenTimePicker = {
+  hourValues: ['1','2','3','4','5','6','7','8','9','10','11','12'],
+  minuteValues: ['00','05','10','15','20','25','30','35','40','45','50','55'],
+  periodValues: ['AM','PM'],
   open(targetInput, title='Select Time'){
     this.target = targetInput;
     $$('#timeTitle').textContent = title;
-    this.hour   = new LoopWheel($$('#genHourCol'), ['1','2','3','4','5','6','7','8','9','10','11','12']);
-    this.minute = new LoopWheel($$('#genMinuteCol'), ['00','05','10','15','20','25','30','35','40','45','50','55']);
-    this.period = new LoopWheel($$('#genPeriodCol'), ['AM','PM']);
-    // Default 03:00 PM
-    this.hour.scrollToBaseIndex(2, true);
-    this.minute.scrollToBaseIndex(0, true);
-    this.period.scrollToBaseIndex(1, true);
+    if(!this.hour){
+      this.hour   = new LoopWheel($$('#genHourCol'), this.hourValues);
+      this.minute = new LoopWheel($$('#genMinuteCol'), this.minuteValues);
+      this.period = new LoopWheel($$('#genPeriodCol'), this.periodValues);
+    }
+    this.setInitialPosition();
     $$('#modal-time').hidden = false;
   },
   close(){ $$('#modal-time').hidden = true; this.target = null; },
@@ -807,6 +1053,26 @@ const GenTimePicker = {
       minute: this.minute.selectedBase(),
       period: this.period.selectedBase()
     };
+  },
+  setInitialPosition(){
+    const text = stripOrdinals((this.target?.value || '').trim()).replace(/\s+/g,'').toUpperCase();
+    const match = text.match(/^([1-9]|1[0-2]):([0-5][0-9])([AP]M)$/);
+    let hourIdx = 2, minIdx = 0, periodIdx = 1; // default 3:00 PM
+    if(match){
+      const [, h, m, p] = match;
+      const period = p === 'AM' ? 'AM' : 'PM';
+      const targetHour = String(parseInt(h,10));
+      const targetMinute = m;
+      const hIdx = this.hourValues.indexOf(targetHour);
+      const mIdx = this.minuteValues.indexOf(targetMinute);
+      const pIdx = this.periodValues.indexOf(period);
+      if(hIdx !== -1) hourIdx = hIdx;
+      if(mIdx !== -1) minIdx = mIdx;
+      if(pIdx !== -1) periodIdx = pIdx;
+    }
+    this.hour.scrollToBaseIndex(hourIdx, true);
+    this.minute.scrollToBaseIndex(minIdx, true);
+    this.period.scrollToBaseIndex(periodIdx, true);
   }
 };
 
