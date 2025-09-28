@@ -96,96 +96,113 @@ const expectedArrival = $$('#expectedArrival');
 const expectedDeparture = $$('#expectedDeparture');
 
 /* =========================
-   Looping wheel utility
+   Wheel utility (non-looping)
    ========================= */
-class LoopWheel {
-  constructor(colEl, baseItems){
-    this.col  = colEl;
-    this.base = baseItems.slice();
-    if(!this.col || this.base.length === 0) return;
+class WheelColumn {
+  constructor(colEl, values){
+    this.el = colEl;
+    this.values = Array.isArray(values) ? values.slice() : [];
+    if(!this.el || this.values.length === 0) return;
 
-    this.loopFactor = Math.max(5, Math.ceil(9 / this.base.length) * 2 + 1);
-    this.itemH = 36;
-    this.pad   = 72;
-    this.ext = [];
-    for(let i=0; i<this.loopFactor; i++){
-      this.ext.push(...this.base);
-    }
-    this.midStart = this.base.length * Math.floor(this.loopFactor/2);
-
-    this._suspendSnap = false;
-    this._snapTimer   = null;
+    this.itemHeight = 40;
+    this.currentIndex = 0;
+    this.pad = 0;
+    this._snapTimer = null;
+    this._releaseTimer = null;
     this._pointerActive = false;
-    this.currentIndex = this.midStart;
-    this.currentBaseIndex = 0;
+    this._suspend = false;
 
-    this._handleResize = ()=> this.handleResize();
-    this._boundScroll = (e)=> this.handleScroll(e);
-    this._boundWheel = ()=> this.scheduleSnap();
-    this._boundPointerDown = ()=> this.handlePointerDown();
-    this._boundPointerUp = ()=> this.handlePointerUp();
-    this._boundKeyDown = (e)=> this.handleKey(e);
+    this.handleScroll = this.handleScroll.bind(this);
+    this.handlePointerDown = this.handlePointerDown.bind(this);
+    this.handlePointerUp = this.handlePointerUp.bind(this);
+    this.handleKeyDown = this.handleKeyDown.bind(this);
+    this.handleResize = this.handleResize.bind(this);
+    this.handleClick = this.handleClick.bind(this);
 
     this.build();
   }
 
   build(){
-    this.col.innerHTML = '';
+    this.el.innerHTML = '';
     const frag = document.createDocumentFragment();
-    let i = 0;
-    for(const it of this.ext){
+    this.values.forEach((value)=>{
       const div = document.createElement('div');
       div.className = 'picker-item';
-      div.textContent = it;
+      div.textContent = value;
+      div.dataset.value = value;
       div.setAttribute('role', 'option');
-      div.dataset.loopIndex = String(i++);
       frag.appendChild(div);
-    }
-    this.col.appendChild(frag);
-    this.col.setAttribute('role', 'listbox');
-    if(!this.col.hasAttribute('tabindex')){
-      this.col.setAttribute('tabindex', '0');
+    });
+    this.el.appendChild(frag);
+    this.el.setAttribute('role', 'listbox');
+    if(!this.el.hasAttribute('tabindex')){
+      this.el.setAttribute('tabindex', '0');
     }
 
     this.refreshMetrics();
-    this.scrollToLoopIndex(this.midStart, true);
-    this.currentIndex = this.midStart;
-    this.currentBaseIndex = 0;
     this.applySelection();
-    this.attachListeners();
+
+    this.el.addEventListener('scroll', this.handleScroll, { passive:true });
+    this.el.addEventListener('pointerdown', this.handlePointerDown);
+    this.el.addEventListener('pointerup', this.handlePointerUp);
+    this.el.addEventListener('pointercancel', this.handlePointerUp);
+    this.el.addEventListener('touchend', this.handlePointerUp, { passive:true });
+    this.el.addEventListener('keydown', this.handleKeyDown);
+    this.el.addEventListener('click', this.handleClick);
+
+    if(typeof ResizeObserver !== 'undefined'){
+      this.resizeObserver = new ResizeObserver(()=> this.handleResize());
+      this.resizeObserver.observe(this.el);
+    }
+    window.addEventListener('resize', this.handleResize);
+    window.addEventListener('orientationchange', this.handleResize);
+  }
+
+  prefersReducedMotion(){
+    if(this._prefersReducedMotion != null) return this._prefersReducedMotion;
+    try {
+      this._prefersReducedMotion = typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch(err){
+      this._prefersReducedMotion = false;
+    }
+    return this._prefersReducedMotion;
   }
 
   refreshMetrics(){
-    const sample = this.col.querySelector('.picker-item');
+    const sample = this.el.querySelector('.picker-item');
     if(sample){
       const rect = sample.getBoundingClientRect();
-      if(rect.height) this.itemH = rect.height;
+      if(rect.height) this.itemHeight = rect.height;
     }
-    if(!this.itemH) this.itemH = 36;
-    const colRect = this.col.getBoundingClientRect();
+    if(!this.itemHeight) this.itemHeight = 40;
+    const colRect = this.el.getBoundingClientRect();
     if(colRect.height){
-      const pad = Math.max(0, (colRect.height - this.itemH) / 2);
+      const pad = Math.max(0, (colRect.height - this.itemHeight) / 2);
       this.pad = pad;
-      this.col.style.paddingTop = `${pad}px`;
-      this.col.style.paddingBottom = `${pad}px`;
+      this.el.style.paddingTop = `${pad}px`;
+      this.el.style.paddingBottom = `${pad}px`;
     }
   }
 
-  attachListeners(){
-    this.col.addEventListener('scroll', this._boundScroll, { passive:true });
-    this.col.addEventListener('wheel', this._boundWheel, { passive:true });
-    this.col.addEventListener('pointerdown', this._boundPointerDown);
-    this.col.addEventListener('pointerup', this._boundPointerUp);
-    this.col.addEventListener('pointercancel', this._boundPointerUp);
-    this.col.addEventListener('touchend', this._boundPointerUp, { passive:true });
-    this.col.addEventListener('keydown', this._boundKeyDown);
-
-    if(typeof ResizeObserver !== 'undefined'){
-      this.resizeObserver = new ResizeObserver(this._handleResize);
-      this.resizeObserver.observe(this.col);
+  handleResize(){
+    const prevPad = this.pad;
+    const prevItem = this.itemHeight;
+    this.refreshMetrics();
+    if(prevPad !== this.pad || prevItem !== this.itemHeight){
+      this.realign(true);
     }
-    window.addEventListener('resize', this._handleResize);
-    window.addEventListener('orientationchange', this._handleResize);
+  }
+
+  handleClick(e){
+    const item = e.target.closest('.picker-item');
+    if(!item) return;
+    const value = item.dataset.value;
+    const idx = this.values.indexOf(value);
+    if(idx >= 0){
+      this.scrollToIndex(idx, false);
+    }
   }
 
   handlePointerDown(){
@@ -196,148 +213,116 @@ class LoopWheel {
   handlePointerUp(){
     if(!this._pointerActive) return;
     this._pointerActive = false;
-    this.scheduleSnap();
+    this.snapToNearest();
   }
 
-  prefersReducedMotion(){
-    try {
-      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch(err){
-      return false;
-    }
-  }
-
-  handleResize(){
-    const prevPad = this.pad;
-    const prevItemH = this.itemH;
-    this.refreshMetrics();
-    if(this.pad !== prevPad || this.itemH !== prevItemH){
-      this.scrollToBaseIndex(this.currentBaseIndex, true);
-    }
-  }
-
-  handleKey(e){
+  handleKeyDown(e){
     if(e.key === 'ArrowUp' || e.key === 'PageUp'){
       e.preventDefault();
-      this.nudge(-1);
+      this.scrollToIndex(this.currentIndex - 1, false);
     } else if(e.key === 'ArrowDown' || e.key === 'PageDown'){
       e.preventDefault();
-      this.nudge(1);
+      this.scrollToIndex(this.currentIndex + 1, false);
     } else if(e.key === 'Home'){
       e.preventDefault();
-      this.scrollToBaseIndex(0, true);
+      this.scrollToIndex(0, true);
     } else if(e.key === 'End'){
       e.preventDefault();
-      this.scrollToBaseIndex(this.base.length-1, true);
+      this.scrollToIndex(this.values.length - 1, true);
     }
-  }
-
-  nudge(delta){
-    const next = (this.currentBaseIndex + delta + this.base.length) % this.base.length;
-    this.scrollToBaseIndex(next);
   }
 
   handleScroll(){
+    if(this._suspend) return;
     this.updateCurrentIndex();
-    this.ensureLoopBuffer();
-    if(this._suspendSnap) return;
     if(this._pointerActive) return;
     this.scheduleSnap();
   }
 
   scheduleSnap(){
-    if(this._suspendSnap) return;
+    if(this._suspend) return;
     if(this._snapTimer) clearTimeout(this._snapTimer);
-    this._snapTimer = setTimeout(()=> this.snapToNearest(), 80);
+    this._snapTimer = setTimeout(()=> this.snapToNearest(), 100);
   }
 
   snapToNearest(){
-    this._snapTimer = null;
+    if(this._snapTimer){
+      clearTimeout(this._snapTimer);
+      this._snapTimer = null;
+    }
+    if(this._pointerActive) return;
     this.updateCurrentIndex();
-    const targetLoopIdx = this.midStart + this.currentBaseIndex;
-    this._suspendSnap = true;
-    this.scrollToLoopIndex(targetLoopIdx, false);
-    const settleDelay = this.prefersReducedMotion() ? 0 : 200;
-    setTimeout(()=>{
-      this.currentIndex = targetLoopIdx;
-      this.applySelection();
-      this._suspendSnap = false;
-      this.ensureLoopBuffer();
-    }, settleDelay);
+    this.scrollToIndex(this.currentIndex, false);
   }
 
   updateCurrentIndex(){
-    const maxIdx = this.ext.length - 1;
-    if(!this.itemH) return;
-    const raw = (this.col.scrollTop - this.pad) / this.itemH;
-    const idx = Math.max(0, Math.min(maxIdx, Math.round(raw)));
-    if(idx === this.currentIndex) return;
-    this.currentIndex = idx;
-    this.currentBaseIndex = ((idx % this.base.length) + this.base.length) % this.base.length;
-    this.applySelection();
-  }
-
-  ensureLoopBuffer(){
-    const buffer = this.base.length;
-    if(this.currentIndex < buffer || this.currentIndex >= this.ext.length - buffer){
-      const targetLoopIdx = this.midStart + this.currentBaseIndex;
-      this._suspendSnap = true;
-      this.scrollToLoopIndex(targetLoopIdx, true);
-      this.currentIndex = targetLoopIdx;
+    if(!this.values.length || !this.itemHeight) return;
+    const raw = this.el.scrollTop / this.itemHeight;
+    let idx = Math.round(raw);
+    idx = Math.max(0, Math.min(this.values.length - 1, idx));
+    if(idx !== this.currentIndex){
+      this.currentIndex = idx;
       this.applySelection();
-      requestAnimationFrame(()=>{ this._suspendSnap = false; });
     }
   }
 
   applySelection(){
-    const items = this.col.querySelectorAll('.picker-item');
-    const activeLoopId = String(this.currentIndex);
-    items.forEach((el)=>{
-      const selected = el.dataset.loopIndex === activeLoopId;
-      el.classList.toggle('selected', selected);
-      el.setAttribute('aria-selected', selected ? 'true' : 'false');
+    const items = this.el.querySelectorAll('.picker-item');
+    items.forEach((node, index)=>{
+      const selected = index === this.currentIndex;
+      node.classList.toggle('selected', selected);
+      node.setAttribute('aria-selected', selected ? 'true' : 'false');
     });
   }
 
-  scrollToLoopIndex(loopIdx, instant){
-    const top = this.pad + loopIdx * this.itemH;
-    const behavior = instant || this.prefersReducedMotion() ? 'auto' : 'smooth';
-    this.col.scrollTo({ top, behavior });
-  }
-
-  scrollToBaseIndex(baseIdx, instant=false){
-    if(!this.col || !this.base.length) return;
-    const normalized = ((baseIdx % this.base.length) + this.base.length) % this.base.length;
-    this.currentBaseIndex = normalized;
-    const targetLoopIdx = this.midStart + normalized;
-    this._suspendSnap = true;
-    this.scrollToLoopIndex(targetLoopIdx, instant);
-    this.currentIndex = targetLoopIdx;
-    this.applySelection();
-    const settleDelay = instant ? 0 : (this.prefersReducedMotion() ? 0 : 200);
-    setTimeout(()=>{ this._suspendSnap = false; }, settleDelay);
-  }
-
-  selectedBase(){
-    return this.base[this.currentBaseIndex] ?? null;
-  }
-
-  destroy(){
-    if(!this.col) return;
-    this.col.removeEventListener('scroll', this._boundScroll);
-    this.col.removeEventListener('wheel', this._boundWheel);
-    this.col.removeEventListener('pointerdown', this._boundPointerDown);
-    this.col.removeEventListener('pointerup', this._boundPointerUp);
-    this.col.removeEventListener('pointercancel', this._boundPointerUp);
-    this.col.removeEventListener('touchend', this._boundPointerUp);
-    this.col.removeEventListener('keydown', this._boundKeyDown);
-    if(this.resizeObserver){
-      this.resizeObserver.disconnect();
-      this.resizeObserver = null;
+  realign(instant){
+    if(!this.values.length) return;
+    const top = Math.max(0, this.currentIndex * this.itemHeight);
+    this._suspend = true;
+    if(instant){
+      this.el.scrollTo({ top, behavior: 'auto' });
+      this._suspend = false;
+      return;
     }
-    window.removeEventListener('resize', this._handleResize);
-    window.removeEventListener('orientationchange', this._handleResize);
-    if(this._snapTimer) clearTimeout(this._snapTimer);
+    const behavior = this.prefersReducedMotion() ? 'auto' : 'smooth';
+    this.el.scrollTo({ top, behavior });
+    if(this._releaseTimer) clearTimeout(this._releaseTimer);
+    const delay = behavior === 'smooth' ? 220 : 0;
+    this._releaseTimer = setTimeout(()=>{
+      this.el.scrollTo({ top, behavior: 'auto' });
+      this._suspend = false;
+      this.applySelection();
+    }, delay);
+  }
+
+  scrollToIndex(idx, instant=true){
+    if(!this.values.length) return;
+    const clamped = Math.max(0, Math.min(this.values.length - 1, idx));
+    this.currentIndex = clamped;
+    this.refreshMetrics();
+    const top = Math.max(0, clamped * this.itemHeight);
+    const behavior = instant || this.prefersReducedMotion() ? 'auto' : 'smooth';
+    this._suspend = true;
+    this.el.scrollTo({ top, behavior });
+    this.applySelection();
+    if(this._releaseTimer) clearTimeout(this._releaseTimer);
+    const delay = behavior === 'smooth' ? 220 : 0;
+    this._releaseTimer = setTimeout(()=>{
+      this.el.scrollTo({ top, behavior: 'auto' });
+      this._suspend = false;
+      this.applySelection();
+    }, delay);
+  }
+
+  setValue(value, instant=true){
+    if(!this.values.length) return;
+    let idx = this.values.indexOf(value);
+    if(idx === -1) idx = 0;
+    this.scrollToIndex(idx, instant);
+  }
+
+  getValue(){
+    return this.values[this.currentIndex] ?? this.values[0] ?? null;
   }
 }
 
@@ -359,16 +344,6 @@ function createTimeWheelController({ hourSelector, minuteSelector, periodSelecto
 
   const getEl = (sel)=> typeof sel === 'string' ? document.querySelector(sel) : sel;
 
-  function scrollToValue(wheel, values, desired, fallbackValue, instant){
-    if(!wheel || !values.length) return;
-    let idx = values.indexOf(desired);
-    if(idx === -1){
-      idx = values.indexOf(fallbackValue);
-      if(idx === -1) idx = 0;
-    }
-    wheel.scrollToBaseIndex(idx, instant);
-  }
-
   return {
     config: { ...config, defaultSelection: { ...fallback } },
     wheels: null,
@@ -379,9 +354,9 @@ function createTimeWheelController({ hourSelector, minuteSelector, periodSelecto
       const periodEl = getEl(config.periodSelector);
       if(!hourEl || !minuteEl || !periodEl) return;
       this.wheels = {
-        hour:   new LoopWheel(hourEl, config.hours),
-        minute: new LoopWheel(minuteEl, config.minutes),
-        period: new LoopWheel(periodEl, config.periods),
+        hour:   new WheelColumn(hourEl, config.hours),
+        minute: new WheelColumn(minuteEl, config.minutes),
+        period: new WheelColumn(periodEl, config.periods),
       };
     },
     setSelection(parts, instant=true){
@@ -392,9 +367,9 @@ function createTimeWheelController({ hourSelector, minuteSelector, periodSelecto
         minute: parts?.minute ?? this.config.defaultSelection.minute,
         period: parts?.period ?? this.config.defaultSelection.period,
       };
-      scrollToValue(this.wheels.hour,   this.config.hours,   target.hour,   this.config.defaultSelection.hour,   instant);
-      scrollToValue(this.wheels.minute, this.config.minutes, target.minute, this.config.defaultSelection.minute, instant);
-      scrollToValue(this.wheels.period, this.config.periods, target.period, this.config.defaultSelection.period, instant);
+      this.wheels.hour.setValue(target.hour, instant);
+      this.wheels.minute.setValue(target.minute, instant);
+      this.wheels.period.setValue(target.period, instant);
     },
     setFromMinutes(mins, instant=true){
       const parts = timePartsFromMins(mins);
@@ -410,9 +385,9 @@ function createTimeWheelController({ hourSelector, minuteSelector, periodSelecto
         return { ...this.config.defaultSelection };
       }
       return {
-        hour: this.wheels.hour.selectedBase() ?? this.config.defaultSelection.hour,
-        minute: this.wheels.minute.selectedBase() ?? this.config.defaultSelection.minute,
-        period: this.wheels.period.selectedBase() ?? this.config.defaultSelection.period,
+        hour: this.wheels.hour.getValue() ?? this.config.defaultSelection.hour,
+        minute: this.wheels.minute.getValue() ?? this.config.defaultSelection.minute,
+        period: this.wheels.period.getValue() ?? this.config.defaultSelection.period,
       };
     }
   };
@@ -925,8 +900,8 @@ const DinnerPicker = {
   open(){
     const modal = $$('#modal-dinner'); if(!modal) return;
     const target = this.lastSelection || dinnerTimeController.config.defaultSelection;
-    dinnerTimeController.setSelection(target, true);
     modal.hidden = false;
+    requestAnimationFrame(()=> dinnerTimeController.setSelection(target, true));
   },
   close(){ const modal=$$('#modal-dinner'); if(modal) modal.hidden=true; },
   read(){
@@ -996,8 +971,8 @@ const SpaPicker = {
   open(){
     const modal = $$('#modal-spa'); if(!modal) return;
     const target = this.lastSelection || spaTimeController.config.defaultSelection;
-    spaTimeController.setSelection(target, true);
     modal.hidden = false;
+    requestAnimationFrame(()=> spaTimeController.setSelection(target, true));
   },
   close(){ const modal=$$('#modal-spa'); if(modal) modal.hidden=true; },
 };
@@ -1070,15 +1045,18 @@ const GenTimePicker = {
   open(targetInput, title='Select Time'){
     this.target = targetInput;
     $$('#timeTitle').textContent = title;
+    const modal = $$('#modal-time');
     const parsed = parseTimeLabelToParts(targetInput?.value);
-    if(parsed){
-      genericTimeController.setSelection(parsed, true);
-    } else if(this.lastSelection){
-      genericTimeController.setSelection(this.lastSelection, true);
-    } else {
-      genericTimeController.setSelection(genericTimeController.config.defaultSelection, true);
-    }
-    $$('#modal-time').hidden = false;
+    if(modal) modal.hidden = false;
+    requestAnimationFrame(()=>{
+      if(parsed){
+        genericTimeController.setSelection(parsed, true);
+      } else if(this.lastSelection){
+        genericTimeController.setSelection(this.lastSelection, true);
+      } else {
+        genericTimeController.setSelection(genericTimeController.config.defaultSelection, true);
+      }
+    });
   },
   close(){ $$('#modal-time').hidden = true; this.target = null; },
   read(){
