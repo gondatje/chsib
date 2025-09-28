@@ -105,6 +105,7 @@ class LoopWheel {
     this.ext  = [...this.base, ...this.base, ...this.base, ...this.base, ...this.base];
     this.itemH = 36; this.pad = 72;
     this.midStart = this.base.length * 2;
+    this._suspendSnap = false;
     this.build();
   }
   build(){
@@ -120,6 +121,7 @@ class LoopWheel {
   attachSnap(){
     let timer=null;
     this.col.addEventListener('scroll', ()=>{
+      if(this._suspendSnap) return;
       if(timer) clearTimeout(timer);
       timer = setTimeout(()=> this.snapAndRecenter(), 90);
     }, { passive:true });
@@ -139,17 +141,30 @@ class LoopWheel {
   snapAndRecenter(){
     const idx = this.indexAtCenter();
     const target = this.pad + idx*this.itemH;
+    this._suspendSnap = true;
     this.col.scrollTo({ top: target, behavior:'smooth' });
 
     const baseIdx = idx % this.base.length;
     const midIdx  = this.midStart + baseIdx;
     const midTop  = this.pad + midIdx*this.itemH;
-    setTimeout(()=> this.col.scrollTo({ top: midTop, behavior:'auto' }), 140);
+    setTimeout(()=>{
+      this.col.scrollTo({ top: midTop, behavior:'auto' });
+      setTimeout(()=>{ this._suspendSnap = false; }, 90);
+    }, 140);
   }
   scrollToBaseIndex(baseIdx, instant=false){
     const midIdx = this.midStart + (baseIdx % this.base.length);
     const top = this.pad + midIdx*this.itemH;
+    this._suspendSnap = true;
     this.col.scrollTo({ top, behavior: instant?'auto':'smooth' });
+    setTimeout(()=>{ this._suspendSnap = false; }, instant ? 0 : 180);
+  }
+  scrollToValue(value, instant=false){
+    const str = String(value);
+    const baseIdx = this.base.indexOf(str);
+    if(baseIdx >= 0){
+      this.scrollToBaseIndex(baseIdx, instant);
+    }
   }
   selectedBase(){
     const idx = this.indexAtCenter();
@@ -209,12 +224,7 @@ function renderGuests(){
     renderGuests(); renderPreview();
   });
 
-  // demo defaults so you can test immediately
-  if(State.guests.length===0){
-    State.guests.push({ id: State.nextGuestId++, name: 'Brittany', active: true, primary: true });
-    State.guests.push({ id: State.nextGuestId++, name: 'Megan', active: true, primary: false });
-    renderGuests();
-  }
+  renderGuests();
 })();
 
 /* =========================
@@ -637,11 +647,16 @@ function showToast(){ const t=$$('#toast'); if(!t) return; t.hidden=false; setTi
 const DinnerPicker = {
   open(){
     const modal = $$('#modal-dinner'); if(!modal) return;
-    this.hourWheel   = new LoopWheel($$('#dinnerHourCol'), ['5','6','7','8']);
-    this.minuteWheel = new LoopWheel($$('#dinnerMinuteCol'), ['00','15','30']); // no 45 -> 6:45 impossible
-    // Default 7:00pm
-    this.hourWheel.scrollToBaseIndex(2, true);
-    this.minuteWheel.scrollToBaseIndex(0, true);
+    if(!this.hourWheel){
+      this.hourWheel   = new LoopWheel($$('#dinnerHourCol'), ['5','6','7','8']);
+    }
+    if(!this.minuteWheel){
+      this.minuteWheel = new LoopWheel($$('#dinnerMinuteCol'), ['00','15','30']); // no 45 -> 6:45 impossible
+    }
+
+    const last = this.lastSelection || { hour: '7', minute: '00' };
+    this.hourWheel.scrollToValue(last.hour, true);
+    this.minuteWheel.scrollToValue(last.minute, true);
     modal.hidden = false;
   },
   close(){ const modal=$$('#modal-dinner'); if(modal) modal.hidden=true; },
@@ -649,6 +664,12 @@ const DinnerPicker = {
     const h = parseInt(this.hourWheel.selectedBase(),10);
     const m = parseInt(this.minuteWheel.selectedBase(),10);
     return { hour:h, minute:m }; // always PM
+  },
+  remember(sel){
+    this.lastSelection = {
+      hour: String(sel.hour),
+      minute: sel.minute.toString().padStart(2,'0')
+    };
   }
 };
 
@@ -689,6 +710,7 @@ const DinnerPicker = {
     });
     list.sort((a,b)=> a.startMins - b.startMins);
 
+    DinnerPicker.remember(sel);
     renderDayList(iso); renderPreview();
     DinnerPicker.close();
   });
@@ -725,8 +747,14 @@ function buildSpaWheels(){
 const SpaPicker = {
   open(){
     const modal = $$('#modal-spa'); if(!modal) return;
-    this.wheels = buildSpaWheels();
-    this.wheels.setDefault();
+    if(!this.wheels){
+      this.wheels = buildSpaWheels();
+    }
+
+    const last = this.lastSelection || { hour: '11', minute: '00', period: 'AM' };
+    this.wheels.hour.scrollToValue(last.hour, true);
+    this.wheels.minute.scrollToValue(last.minute, true);
+    this.wheels.period.scrollToValue(last.period, true);
     modal.hidden = false;
   },
   close(){ const modal=$$('#modal-spa'); if(modal) modal.hidden=true; },
@@ -776,6 +804,7 @@ const SpaPicker = {
     });
 
     list.sort((a,b)=> a.startMins - b.startMins);
+    SpaPicker.lastSelection = { hour: t.hour, minute: t.minute, period: t.period };
     renderDayList(iso); renderPreview();
     SpaPicker.close();
   });
@@ -788,13 +817,20 @@ const GenTimePicker = {
   open(targetInput, title='Select Time'){
     this.target = targetInput;
     $$('#timeTitle').textContent = title;
-    this.hour   = new LoopWheel($$('#genHourCol'), ['1','2','3','4','5','6','7','8','9','10','11','12']);
-    this.minute = new LoopWheel($$('#genMinuteCol'), ['00','05','10','15','20','25','30','35','40','45','50','55']);
-    this.period = new LoopWheel($$('#genPeriodCol'), ['AM','PM']);
-    // Default 03:00 PM
-    this.hour.scrollToBaseIndex(2, true);
-    this.minute.scrollToBaseIndex(0, true);
-    this.period.scrollToBaseIndex(1, true);
+    if(!this.hour){
+      this.hour   = new LoopWheel($$('#genHourCol'), ['1','2','3','4','5','6','7','8','9','10','11','12']);
+    }
+    if(!this.minute){
+      this.minute = new LoopWheel($$('#genMinuteCol'), ['00','05','10','15','20','25','30','35','40','45','50','55']);
+    }
+    if(!this.period){
+      this.period = new LoopWheel($$('#genPeriodCol'), ['AM','PM']);
+    }
+
+    const parsed = this.parseLabel(targetInput?.value) || this.lastSelection || { hour: '3', minute: '00', period: 'PM' };
+    this.hour.scrollToValue(parsed.hour, true);
+    this.minute.scrollToValue(parsed.minute, true);
+    this.period.scrollToValue(parsed.period, true);
     $$('#modal-time').hidden = false;
   },
   close(){ $$('#modal-time').hidden = true; this.target = null; },
@@ -804,6 +840,12 @@ const GenTimePicker = {
       minute: this.minute.selectedBase(),
       period: this.period.selectedBase()
     };
+  },
+  parseLabel(label){
+    if(!label) return null;
+    const m = label.trim().match(/^(\d{1,2}):(\d{2})(am|pm)$/i);
+    if(!m) return null;
+    return { hour: String(parseInt(m[1],10)), minute: m[2], period: m[3].toUpperCase() };
   }
 };
 
@@ -831,6 +873,7 @@ const GenTimePicker = {
       State.expectedDepartureMins = mins;
     }
 
+    GenTimePicker.lastSelection = { hour: t.hour, minute: t.minute, period: t.period };
     renderDayList(isoFor(State.selectedDate));
     GenTimePicker.close();
   });
