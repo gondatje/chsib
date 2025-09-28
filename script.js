@@ -112,6 +112,7 @@ class WheelColumn {
     this._pointerActive = false;
     this._suspend = false;
 
+    this.emitChange = this.emitChange.bind(this);
     this.handleScroll = this.handleScroll.bind(this);
     this.handlePointerDown = this.handlePointerDown.bind(this);
     this.handlePointerUp = this.handlePointerUp.bind(this);
@@ -156,6 +157,16 @@ class WheelColumn {
     }
     window.addEventListener('resize', this.handleResize);
     window.addEventListener('orientationchange', this.handleResize);
+  }
+
+  emitChange(){
+    if(!this.el) return;
+    const value = this.getValue();
+    const event = new CustomEvent('wheelchange', {
+      bubbles: true,
+      detail: { value }
+    });
+    this.el.dispatchEvent(event);
   }
 
   prefersReducedMotion(){
@@ -263,6 +274,7 @@ class WheelColumn {
     if(idx !== this.currentIndex){
       this.currentIndex = idx;
       this.applySelection();
+      this.emitChange();
     }
   }
 
@@ -312,6 +324,7 @@ class WheelColumn {
       this._suspend = false;
       this.applySelection();
     }, delay);
+    this.emitChange();
   }
 
   setValue(value, instant=true){
@@ -319,6 +332,28 @@ class WheelColumn {
     let idx = this.values.indexOf(value);
     if(idx === -1) idx = 0;
     this.scrollToIndex(idx, instant);
+  }
+
+  setOptions(values, preferredValue=null){
+    if(!Array.isArray(values) || values.length === 0 || !this.el) return;
+    const prevValue = this.getValue();
+    this.values = values.slice();
+    this.el.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    this.values.forEach((value)=>{
+      const div = document.createElement('div');
+      div.className = 'picker-item';
+      div.textContent = value;
+      div.dataset.value = value;
+      div.setAttribute('role', 'option');
+      frag.appendChild(div);
+    });
+    this.el.appendChild(frag);
+    this.refreshMetrics();
+    const targetValue = preferredValue && this.values.includes(preferredValue)
+      ? preferredValue
+      : (this.values.includes(prevValue) ? prevValue : this.values[0]);
+    this.scrollToIndex(this.values.indexOf(targetValue), true);
   }
 
   getValue(){
@@ -890,10 +925,17 @@ const dinnerTimeController = createTimeWheelController({
   minuteSelector: '#dinnerMinuteCol',
   periodSelector: '#dinnerPeriodCol',
   hours: ['5','6','7','8'],
-  minutes: ['00','15','30'],
+  minutes: ['00','15','30','45'],
   periods: ['PM'],
   defaultSelection: { hour: '7', minute: '00', period: 'PM' }
 });
+
+const DinnerMinuteOptions = {
+  '5': ['30','45'],
+  '6': ['00','15','30'],
+  '7': ['00','15','30','45'],
+  '8': ['00']
+};
 
 const DinnerPicker = {
   lastSelection: null,
@@ -915,6 +957,25 @@ const DinnerPicker = {
   const modal   = $$('#modal-dinner');
   const openBtn = $$('#addDinner');
   const confirm = $$('#confirmDinnerBtn');
+
+  dinnerTimeController.ensure();
+  const hourWheel = dinnerTimeController.wheels?.hour;
+  const minuteWheel = dinnerTimeController.wheels?.minute;
+
+  if(hourWheel && minuteWheel){
+    const syncMinutes = (hourValue, preferredMinute)=>{
+      const allowed = DinnerMinuteOptions[hourValue] || dinnerTimeController.config.minutes;
+      minuteWheel.setOptions(allowed, preferredMinute);
+    };
+
+    hourWheel.el.addEventListener('wheelchange', (e)=>{
+      const hourValue = e?.detail?.value || hourWheel.getValue();
+      const minuteValue = minuteWheel.getValue();
+      syncMinutes(hourValue, minuteValue);
+    });
+
+    syncMinutes(hourWheel.getValue(), minuteWheel.getValue());
+  }
 
   openBtn?.addEventListener('click', ()=> DinnerPicker.open());
   modal?.addEventListener('click', (e)=>{
