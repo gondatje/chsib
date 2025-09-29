@@ -2,32 +2,66 @@
 # - slug is the stable key used by the schedule above
 # - duration_min informs timeline & overlap checks
 catalog:
-  guided-hike:
-      title: "Guided Hike"
-          duration_min: 90
-              location: "Trails"
-                  capacity_hint: "Small group"
-                      notes:
-                            - "Trail selection depends on conditions."
-                                  - "Closed-toe shoes recommended."
-                                    archery:
-                                        title: "Archery"
-                                            duration_min: 60
-                                                location: "Range"
-                                                    capacity_hint: "Small group"
-                                                        notes:
-                                                              - "Safety briefing included."
-                                                                yoga:
-                                                                    title: "Morning Yoga"
-                                                                        duration_min: 60
-                                                                            location: "Wellness Lawn"
-                                                                                capacity_hint: "Group"
-                                                                                    notes:
-                                                                                          - "Mats provided."
-                                                                                            mixology:
-                                                                                                title: "Mixology Class"
-                                                                                                    duration_min: 60
-                                                                                                        location: "Bar"
-                                                                                                            capacity_hint: "Limited seats"
-                                                                                                                notes:
-                                                                                                                      - "Must be 21+ for alcohol tasting."
+  overlook-hike:
+    title: "Overlook Hike"
+    duration_min: 90
+  scenic-desert-ebike:
+    title: "Scenic Desert E-Bike Ride"
+    duration_min: 135
+  castle-peak-via-ferrata:
+    title: "Castle Peak Via Ferrata Climb"
+    duration_min: 180
+  crater-canyon-exploration:
+    title: "Crater Canyon Exploration"
+    duration_min: 180
+  rise-and-shine-flow-yoga:
+    title: "Rise & Shine Flow Yoga"
+    duration_min: 55
+  ebiking-101-intro:
+    title: "E-Biking 101: Intro to E-Bike Tour"
+    duration_min: 75
+  landscape-restoration-tour:
+    title: "Landscape Restoration and Development Tour"
+    duration_min: 45
+  meditation-reset:
+    title: "Meditation"
+    duration_min: 20
+  guided-archery:
+    title: "Guided Archery"
+    duration_min: 45
+  intro-to-tai-chi:
+    title: "Intro to Tai Chi"
+    duration_min: 45
+  farm-tour:
+    title: "Farm Tour"
+    duration_min: 60
+  axe-throwing:
+    title: "Axe Throwing"
+    duration_min: 45
+  paddle-board-yoga:
+    title: "Paddle Board Yoga"
+    duration_min: 60
+  sound-bath:
+    title: "Sound Bath"
+    duration_min: 60
+  mindfulness-rock-mandalas:
+    title: "Mindfulness Activity - Rock Mandalas"
+    duration_min: 45
+  cooling-aroma-restorative-yoga:
+    title: "Cooling Aroma Restorative Yoga"
+    duration_min: 60
+  wine-tasting:
+    title: "Wine Tasting"
+    duration_min: 60
+  afternoon-yoga:
+    title: "Yoga"
+    duration_min: 55
+  chs-documentary-viewing:
+    title: "Castle Hot Springs Documentary Viewing"
+    duration_min: 45
+  connecting-with-water:
+    title: "Connecting With Water"
+    duration_min: 60
+  yoga-nidra:
+    title: "Yoga Nidra"
+    duration_min: 30

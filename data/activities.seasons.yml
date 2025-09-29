@@ -1,39 +1,35 @@
 # Seasons define date ranges and weekly recurring activity times inside each range.
 # Day keys: mon,tue,wed,thu,fri,sat,sun. Time format: "HH:MM" 24h.
 seasons:
-  - name: "Late Summer 2025"
-    start: "2025-08-28"
-    end:   "2025-10-15"
+  - name: "Year Round Highlights"
+    start: "2024-01-01"
+    end:   "2026-12-31"
     weekly:
-      mon:
-        - { slug: "guided-hike", time: "08:30" }
-        - { slug: "archery",     time: "15:00" }
-      tue:
-        - { slug: "yoga",        time: "08:00" }
-        - { slug: "archery",     time: "15:00" }
-      wed:
-        - { slug: "guided-hike", time: "08:30" }
-        - { slug: "mixology",    time: "16:00" }
-      thu:
-        - { slug: "yoga",        time: "08:00" }
-      fri:
-        - { slug: "guided-hike", time: "08:30" }
-        - { slug: "archery",     time: "15:00" }
-      sat:
-        - { slug: "yoga",        time: "08:00" }
-        - { slug: "mixology",    time: "16:00" }
-      sun:
-        - { slug: "guided-hike", time: "08:30" }
-
-  - name: "Fall 2025"
-    start: "2025-10-16"
-    end:   "2025-11-19"
-    weekly:
-      mon:
-        - { slug: "guided-hike", time: "09:00" }
-      wed:
-        - { slug: "archery",     time: "15:00" }
-      fri:
-        - { slug: "yoga",        time: "08:00" }
-      sun:
-        - { slug: "mixology",    time: "16:00" }
+      mon: &daily_schedule
+        - { slug: "overlook-hike", time: "06:45", end: "08:15" }
+        - { slug: "scenic-desert-ebike", time: "07:00", end: "09:15" }
+        - { slug: "castle-peak-via-ferrata", time: "07:00", end: "10:00" }
+        - { slug: "crater-canyon-exploration", time: "07:00", end: "10:00" }
+        - { slug: "rise-and-shine-flow-yoga", time: "08:30", end: "09:25" }
+        - { slug: "ebiking-101-intro", time: "09:00", end: "10:15" }
+        - { slug: "landscape-restoration-tour", time: "09:30", end: "10:15" }
+        - { slug: "meditation-reset", time: "09:40", end: "10:00" }
+        - { slug: "guided-archery", time: "10:00", end: "10:45" }
+        - { slug: "intro-to-tai-chi", time: "10:15", end: "11:00" }
+        - { slug: "farm-tour", time: "10:30", end: "11:30" }
+        - { slug: "axe-throwing", time: "11:00", end: "11:45" }
+        - { slug: "paddle-board-yoga", time: "11:00", end: "12:00" }
+        - { slug: "sound-bath", time: "12:30", end: "13:30" }
+        - { slug: "mindfulness-rock-mandalas", time: "14:00", end: "14:45" }
+        - { slug: "cooling-aroma-restorative-yoga", time: "14:00", end: "15:00" }
+        - { slug: "wine-tasting", time: "15:00", end: "16:00" }
+        - { slug: "afternoon-yoga", time: "15:15", end: "16:10" }
+        - { slug: "chs-documentary-viewing", time: "16:00", end: "16:45" }
+        - { slug: "connecting-with-water", time: "16:00", end: "17:00" }
+        - { slug: "yoga-nidra", time: "16:30", end: "17:00" }
+      tue: *daily_schedule
+      wed: *daily_schedule
+      thu: *daily_schedule
+      fri: *daily_schedule
+      sat: *daily_schedule
+      sun: *daily_schedule

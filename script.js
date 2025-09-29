@@ -6,32 +6,67 @@ console.log("Itinerary Builder is working ✅");
    - Renders immediately from these constants (zero fetch waits)
    - If YAML loads later, it will transparently override
 */
+const EMBED_ACTIVITIES_DAY_TEMPLATE = [
+  { slug: "overlook-hike", time: "06:45", end: "08:15" },
+  { slug: "scenic-desert-ebike", time: "07:00", end: "09:15" },
+  { slug: "castle-peak-via-ferrata", time: "07:00", end: "10:00" },
+  { slug: "crater-canyon-exploration", time: "07:00", end: "10:00" },
+  { slug: "rise-and-shine-flow-yoga", time: "08:30", end: "09:25" },
+  { slug: "ebiking-101-intro", time: "09:00", end: "10:15" },
+  { slug: "landscape-restoration-tour", time: "09:30", end: "10:15" },
+  { slug: "meditation-reset", time: "09:40", end: "10:00" },
+  { slug: "guided-archery", time: "10:00", end: "10:45" },
+  { slug: "intro-to-tai-chi", time: "10:15", end: "11:00" },
+  { slug: "farm-tour", time: "10:30", end: "11:30" },
+  { slug: "axe-throwing", time: "11:00", end: "11:45" },
+  { slug: "paddle-board-yoga", time: "11:00", end: "12:00" },
+  { slug: "sound-bath", time: "12:30", end: "13:30" },
+  { slug: "mindfulness-rock-mandalas", time: "14:00", end: "14:45" },
+  { slug: "cooling-aroma-restorative-yoga", time: "14:00", end: "15:00" },
+  { slug: "wine-tasting", time: "15:00", end: "16:00" },
+  { slug: "afternoon-yoga", time: "15:15", end: "16:10" },
+  { slug: "chs-documentary-viewing", time: "16:00", end: "16:45" },
+  { slug: "connecting-with-water", time: "16:00", end: "17:00" },
+  { slug: "yoga-nidra", time: "16:30", end: "17:00" }
+];
+
 const EMBED_ACTIVITIES_CATALOG = {
-  "guided-hike": { title: "Guided Hike", duration_min: 90, location: "Trails" },
-  "archery":     { title: "Archery", duration_min: 60, location: "Range" },
-  "yoga":        { title: "Morning Yoga", duration_min: 60, location: "Wellness Lawn" },
-  "mixology":    { title: "Mixology Class", duration_min: 60, location: "Bar" },
+  "overlook-hike": { title: "Overlook Hike", duration_min: 90 },
+  "scenic-desert-ebike": { title: "Scenic Desert E-Bike Ride", duration_min: 135 },
+  "castle-peak-via-ferrata": { title: "Castle Peak Via Ferrata Climb", duration_min: 180 },
+  "crater-canyon-exploration": { title: "Crater Canyon Exploration", duration_min: 180 },
+  "rise-and-shine-flow-yoga": { title: "Rise & Shine Flow Yoga", duration_min: 55 },
+  "ebiking-101-intro": { title: "E-Biking 101: Intro to E-Bike Tour", duration_min: 75 },
+  "landscape-restoration-tour": { title: "Landscape Restoration and Development Tour", duration_min: 45 },
+  "meditation-reset": { title: "Meditation", duration_min: 20 },
+  "guided-archery": { title: "Guided Archery", duration_min: 45 },
+  "intro-to-tai-chi": { title: "Intro to Tai Chi", duration_min: 45 },
+  "farm-tour": { title: "Farm Tour", duration_min: 60 },
+  "axe-throwing": { title: "Axe Throwing", duration_min: 45 },
+  "paddle-board-yoga": { title: "Paddle Board Yoga", duration_min: 60 },
+  "sound-bath": { title: "Sound Bath", duration_min: 60 },
+  "mindfulness-rock-mandalas": { title: "Mindfulness Activity - Rock Mandalas", duration_min: 45 },
+  "cooling-aroma-restorative-yoga": { title: "Cooling Aroma Restorative Yoga", duration_min: 60 },
+  "wine-tasting": { title: "Wine Tasting", duration_min: 60 },
+  "afternoon-yoga": { title: "Yoga", duration_min: 55 },
+  "chs-documentary-viewing": { title: "Castle Hot Springs Documentary Viewing", duration_min: 45 },
+  "connecting-with-water": { title: "Connecting With Water", duration_min: 60 },
+  "yoga-nidra": { title: "Yoga Nidra", duration_min: 30 }
 };
+
 const EMBED_ACTIVITIES_SEASONS = [
   {
-    name:"Late Summer 2025", start:"2025-08-28", end:"2025-10-15",
-    weekly:{
-      mon:[{slug:"guided-hike",time:"08:30"},{slug:"archery",time:"15:00"}],
-      tue:[{slug:"yoga",time:"08:00"},{slug:"archery",time:"15:00"}],
-      wed:[{slug:"guided-hike",time:"08:30"},{slug:"mixology",time:"16:00"}],
-      thu:[{slug:"yoga",time:"08:00"}],
-      fri:[{slug:"guided-hike",time:"08:30"},{slug:"archery",time:"15:00"}],
-      sat:[{slug:"yoga",time:"08:00"},{slug:"mixology",time:"16:00"}],
-      sun:[{slug:"guided-hike",time:"08:30"}],
-    }
-  },
-  {
-    name:"Fall 2025", start:"2025-10-16", end:"2025-11-19",
-    weekly:{
-      mon:[{slug:"guided-hike",time:"09:00"}],
-      wed:[{slug:"archery",time:"15:00"}],
-      fri:[{slug:"yoga",time:"08:00"}],
-      sun:[{slug:"mixology",time:"16:00"}],
+    name: "Year Round Highlights",
+    start: "2024-01-01",
+    end: "2026-12-31",
+    weekly: {
+      mon: EMBED_ACTIVITIES_DAY_TEMPLATE.map(slot => ({ ...slot })),
+      tue: EMBED_ACTIVITIES_DAY_TEMPLATE.map(slot => ({ ...slot })),
+      wed: EMBED_ACTIVITIES_DAY_TEMPLATE.map(slot => ({ ...slot })),
+      thu: EMBED_ACTIVITIES_DAY_TEMPLATE.map(slot => ({ ...slot })),
+      fri: EMBED_ACTIVITIES_DAY_TEMPLATE.map(slot => ({ ...slot })),
+      sat: EMBED_ACTIVITIES_DAY_TEMPLATE.map(slot => ({ ...slot })),
+      sun: EMBED_ACTIVITIES_DAY_TEMPLATE.map(slot => ({ ...slot }))
     }
   }
 ];
@@ -143,15 +178,17 @@ const State = {
   itemsByDate: Object.create(null),
   guests: [],
   nextGuestId: 1,
+  selectedGuestId: null,
   expectedArrivalMins: null,
   expectedDepartureMins: null,
-  nextItemId: 1
+  nextItemId: 1,
+  guestActivitySelections: Object.create(null)
 };
 
 const $$  = sel => document.querySelector(sel);
 const calGrid    = $$('#calGrid');
 const dayTitleEl = $$('#dayTitle');
-const dayListEl  = $$('#dayList');
+const activitiesScheduleEl = $$('#activitiesSchedule');
 const itineraryBody = $$('#itineraryBody');
 const copyBtn    = $$('#copyBtn');
 const lunchHint  = $$('#lunchHint');
@@ -540,37 +577,75 @@ function guestStyle(g){
 function activeGuestIds(){ return State.guests.filter(g=>g.active).map(g=>g.id); }
 function allGuestIds(){ return State.guests.map(g=>g.id); }
 
+function ensureSelectedGuest(){
+  if(State.guests.length === 0){
+    State.selectedGuestId = null;
+    return;
+  }
+  if(!State.guests.some(g => g.id === State.selectedGuestId)){
+    State.selectedGuestId = State.guests[0].id;
+  }
+}
+
+function removeGuestFromSelections(guestId){
+  const map = State.guestActivitySelections;
+  for(const iso of Object.keys(map)){
+    const isoMap = map[iso];
+    for(const key of Object.keys(isoMap)){
+      if(isoMap[key] && isoMap[key][guestId]){
+        delete isoMap[key][guestId];
+      }
+      if(isoMap[key] && Object.keys(isoMap[key]).length === 0){
+        delete isoMap[key];
+      }
+    }
+    if(Object.keys(isoMap).length === 0){
+      delete map[iso];
+    }
+  }
+}
+
 function renderGuests(){
   if(!guestsChipsEl) return;
+  ensureSelectedGuest();
   guestsChipsEl.innerHTML = '';
   if(State.guests.length===0){
     guestsChipsEl.innerHTML = `<span class="muted" style="padding:4px 0;">No guests yet</span>`;
+    renderActivitiesForDate(isoFor(State.selectedDate));
     return;
   }
   for(const g of State.guests){
+    const isSelected = g.id === State.selectedGuestId;
+    g.active = isSelected;
     const chip = document.createElement('div');
-    chip.className = 'gchip' + (g.active ? ' active' : '');
+    chip.className = 'gchip' + (isSelected ? ' active' : '');
     chip.dataset.id = g.id;
 
     const s = guestStyle(g);
     chip.style.borderColor = s.border;
-    chip.style.background  = g.active ? s.bg : '#fff';
+    chip.style.background  = isSelected ? s.bg : '#fff';
     chip.innerHTML = `
       <span class="dot" style="background:${s.text};"></span>
-      <span class="name" style="color:${g.active ? s.text : 'inherit'}">${g.name}</span>
+      <span class="name" style="color:${isSelected ? s.text : 'inherit'}">${g.name}</span>
       <span class="x" title="Remove">×</span>
     `;
     chip.addEventListener('click', (e)=>{
       if(e.target.classList.contains('x')) return;
-      g.active = !g.active;
-      renderGuests(); renderActivitiesForDate(isoFor(State.selectedDate)); renderPreview();
+      State.selectedGuestId = g.id;
+      renderGuests();
+      renderActivitiesForDate(isoFor(State.selectedDate));
+      renderPreview();
     });
     chip.querySelector('.x')?.addEventListener('click', (e)=>{
       e.stopPropagation();
+      removeGuestFromSelections(g.id);
       const wasPrimary = g.primary;
       State.guests = State.guests.filter(x=>x.id!==g.id);
       if(wasPrimary && State.guests[0]) State.guests[0].primary = true;
-      renderGuests(); renderActivitiesForDate(isoFor(State.selectedDate)); renderPreview();
+      ensureSelectedGuest();
+      renderGuests();
+      renderActivitiesForDate(isoFor(State.selectedDate));
+      renderPreview();
     });
     guestsChipsEl.appendChild(chip);
   }
@@ -581,6 +656,7 @@ function renderGuests(){
     if(!input) return;
     const g = { id: State.nextGuestId++, name: input, active: true, primary: State.guests.length===0 };
     State.guests.push(g);
+    State.selectedGuestId = g.id;
     renderGuests(); renderActivitiesForDate(isoFor(State.selectedDate)); renderPreview();
   });
   renderGuests();
@@ -693,46 +769,116 @@ function activitiesForDate(iso){
   const seasons = getSeasons().filter(s => inRange(iso, s));
   const cat = getCatalog();
 
-  const items = [];
+  const map = new Map();
   for(const s of seasons){
     const daySlots = s.weekly?.[wkey] || [];
     for(const slot of daySlots){
-      const meta = cat[slot.slug];
-      if(!meta) continue;
-      const start = minsFromHHMM(slot.time);
-      const end = start + (meta.duration_min || 60);
-      items.push({
-        startMins: start,
-        endMins: end,
-        title: meta.title,
-        // keep location etc under the hood if needed later
-        location: meta.location || ''
-      });
+      const slug = slot.slug || slot.activity || slot.id || null;
+      const meta = slug ? cat[slug] : null;
+      const startLabel = slot.time || slot.start;
+      if(!startLabel) continue;
+      const start = minsFromHHMM(startLabel);
+      let end = null;
+      if(slot.end){
+        end = minsFromHHMM(slot.end);
+      } else if(typeof slot.duration_min === 'number'){ end = start + slot.duration_min; }
+      else if(typeof slot.duration === 'number'){ end = start + slot.duration; }
+      else if(meta && typeof meta.duration_min === 'number'){ end = start + meta.duration_min; }
+      else { end = start + 60; }
+      if(!Number.isFinite(end) || end <= start){ end = start + 15; }
+      const title = slot.title || meta?.title || slug || 'Activity';
+      const base = (slug || title).toString().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+      const key = `${base || 'activity'}-${start}-${end}`;
+      if(!map.has(key)){
+        map.set(key, {
+          key,
+          slug,
+          startMins: start,
+          endMins: end,
+          title,
+          season: s.name || ''
+        });
+      }
     }
   }
-  items.sort((a,b)=> a.startMins - b.startMins);
+  const items = Array.from(map.values());
+  items.sort((a,b)=> a.startMins - b.startMins || a.title.localeCompare(b.title));
   return items;
 }
 
+function toggleGuestActivitySelection(iso, key, guestId, shouldCheck){
+  if(!guestId) return;
+  if(!State.guestActivitySelections[iso]) State.guestActivitySelections[iso] = Object.create(null);
+  const isoMap = State.guestActivitySelections[iso];
+  if(!isoMap[key]) isoMap[key] = Object.create(null);
+  if(shouldCheck){
+    isoMap[key][guestId] = true;
+  } else {
+    delete isoMap[key][guestId];
+    if(Object.keys(isoMap[key]).length === 0){
+      delete isoMap[key];
+    }
+  }
+  if(Object.keys(isoMap).length === 0){
+    delete State.guestActivitySelections[iso];
+  }
+}
+
 function renderActivitiesForDate(iso){
-  if(!dayListEl) return;
+  const target = activitiesScheduleEl;
+  if(!target) return;
   const list = activitiesForDate(iso);
+  target.innerHTML = '';
 
   if(list.length === 0){
-    dayListEl.innerHTML = '<li class="empty">No activities scheduled for this day.</li>';
+    target.innerHTML = '<li class="empty">No activities scheduled for this day.</li>';
     return;
   }
-  // STRICT: Time range + Title only
-  dayListEl.innerHTML = '';
+
+  const guestId = State.selectedGuestId;
   for(const it of list){
     const li = document.createElement('li');
-    li.className = 'row--activity';
-    const timeLabel = `${formatMins(it.startMins)} – ${formatMins(it.endMins)}`;
-    li.innerHTML = `
-      <div class="row-top">
-        <div class="row-main"><strong>${timeLabel}</strong> | ${it.title}</div>
-      </div>`;
-    dayListEl.appendChild(li);
+    li.className = 'activity-card';
+
+    const label = document.createElement('label');
+    label.className = 'activity-check';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'activity-checkbox';
+    const safeId = `activity-${iso}-${it.key}`.replace(/[^a-z0-9_-]/gi,'-');
+    checkbox.id = safeId;
+    checkbox.disabled = !guestId;
+    const checked = guestId ? !!(State.guestActivitySelections[iso]?.[it.key]?.[guestId]) : false;
+    checkbox.checked = checked;
+    checkbox.addEventListener('change', ()=>{
+      const activeGuest = State.selectedGuestId;
+      if(!activeGuest){
+        checkbox.checked = false;
+        return;
+      }
+      toggleGuestActivitySelection(iso, it.key, activeGuest, checkbox.checked);
+    });
+
+    const mark = document.createElement('span');
+    mark.className = 'activity-checkmark';
+    mark.setAttribute('aria-hidden', 'true');
+
+    const text = document.createElement('span');
+    text.className = 'activity-text';
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'activity-time';
+    timeSpan.textContent = `${formatMins(it.startMins)} - ${formatMins(it.endMins)}`;
+    const sep = document.createElement('span');
+    sep.className = 'activity-sep';
+    sep.textContent = '|';
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'activity-title';
+    titleSpan.textContent = it.title;
+
+    text.append(timeSpan, sep, titleSpan);
+    label.append(checkbox, mark, text);
+    li.append(label);
+    target.append(li);
   }
 }
 
