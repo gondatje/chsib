@@ -72,7 +72,9 @@ const State = {
   nextGuestId: 1,
 
   expectedArrivalMins: null,
-  expectedDepartureMins: null
+  expectedDepartureMins: null,
+
+  nextItemId: 1
 };
 
 const $$  = sel => document.querySelector(sel);
@@ -99,18 +101,25 @@ const expectedDeparture = $$('#expectedDeparture');
    Wheel utility (non-looping)
    ========================= */
 class WheelColumn {
-  constructor(colEl, values){
+  constructor(colEl, values, options={}){
     this.el = colEl;
-    this.values = Array.isArray(values) ? values.slice() : [];
-    if(!this.el || this.values.length === 0) return;
+    this.baseValues = Array.isArray(values) ? values.slice() : [];
+    this.loopPreference = options.loop !== undefined ? !!options.loop : true;
 
+    this.values = this.baseValues.slice();
     this.itemHeight = 40;
     this.currentIndex = 0;
+    this.currentDisplayIndex = 0;
+    this.loopEnabled = false;
+    this.loopSetSize = 0;
+    this.loopBaseOffset = 0;
+    this.displayCount = 0;
     this.pad = 0;
     this._snapTimer = null;
     this._releaseTimer = null;
     this._pointerActive = false;
     this._suspend = false;
+    this._prefersReducedMotion = null;
 
     this.emitChange = this.emitChange.bind(this);
     this.handleScroll = this.handleScroll.bind(this);
@@ -120,27 +129,21 @@ class WheelColumn {
     this.handleResize = this.handleResize.bind(this);
     this.handleClick = this.handleClick.bind(this);
 
+    if(!this.el) return;
+
     this.build();
   }
 
   build(){
-    this.el.innerHTML = '';
-    const frag = document.createDocumentFragment();
-    this.values.forEach((value)=>{
-      const div = document.createElement('div');
-      div.className = 'picker-item';
-      div.textContent = value;
-      div.dataset.value = value;
-      div.setAttribute('role', 'option');
-      frag.appendChild(div);
-    });
-    this.el.appendChild(frag);
+    this.populate(this.baseValues);
+
     this.el.setAttribute('role', 'listbox');
     if(!this.el.hasAttribute('tabindex')){
       this.el.setAttribute('tabindex', '0');
     }
 
     this.refreshMetrics();
+    this.realign(true);
     this.applySelection();
 
     this.el.addEventListener('scroll', this.handleScroll, { passive:true });
@@ -157,6 +160,48 @@ class WheelColumn {
     }
     window.addEventListener('resize', this.handleResize);
     window.addEventListener('orientationchange', this.handleResize);
+  }
+
+  populate(values){
+    if(!this.el) return;
+    this.baseValues = Array.isArray(values) ? values.slice() : [];
+    this.values = this.baseValues.slice();
+    this.loopEnabled = this.loopPreference && this.values.length > 1;
+    this.loopSetSize = this.values.length || 1;
+    this.loopBaseOffset = this.loopEnabled ? this.loopSetSize : 0;
+
+    const sets = this.loopEnabled ? 3 : 1;
+    const frag = document.createDocumentFragment();
+
+    for(let r=0; r<sets; r++){
+      this.values.forEach((value, baseIndex)=>{
+        const div = document.createElement('div');
+        div.className = 'picker-item';
+        div.textContent = value;
+        div.dataset.value = value;
+        div.dataset.baseIndex = String(baseIndex);
+        div.setAttribute('role', 'option');
+        frag.appendChild(div);
+      });
+    }
+
+    this.el.innerHTML = '';
+    if(sets > 0){
+      this.el.appendChild(frag);
+    }
+    this.displayCount = this.el.children.length;
+
+    if(this.values.length === 0){
+      this.currentIndex = 0;
+      this.currentDisplayIndex = 0;
+      return;
+    }
+
+    if(this.currentIndex >= this.values.length){
+      this.currentIndex = this.values.length - 1;
+    }
+    if(this.currentIndex < 0) this.currentIndex = 0;
+    this.currentDisplayIndex = this.loopEnabled ? this.loopBaseOffset + this.currentIndex : this.currentIndex;
   }
 
   emitChange(){
@@ -182,6 +227,7 @@ class WheelColumn {
   }
 
   refreshMetrics(){
+    if(!this.el) return;
     const sample = this.el.querySelector('.picker-item');
     if(sample){
       const rect = sample.getBoundingClientRect();
@@ -209,10 +255,9 @@ class WheelColumn {
   handleClick(e){
     const item = e.target.closest('.picker-item');
     if(!item) return;
-    const value = item.dataset.value;
-    const idx = this.values.indexOf(value);
-    if(idx >= 0){
-      this.scrollToIndex(idx, false);
+    const baseIndex = parseInt(item.dataset.baseIndex ?? '-1', 10);
+    if(baseIndex >= 0){
+      this.scrollToIndex(baseIndex, false);
     }
   }
 
@@ -267,64 +312,91 @@ class WheelColumn {
   }
 
   updateCurrentIndex(){
-    if(!this.values.length || !this.itemHeight) return;
+    if(!this.el || !this.values.length || !this.itemHeight) return;
+    if(this.displayCount === 0) return;
+
     const raw = this.el.scrollTop / this.itemHeight;
-    let idx = Math.round(raw);
-    idx = Math.max(0, Math.min(this.values.length - 1, idx));
-    if(idx !== this.currentIndex){
-      this.currentIndex = idx;
-      this.applySelection();
-      this.emitChange();
+    let displayIndex = Math.round(raw);
+
+    if(this.loopEnabled){
+      const span = this.loopSetSize;
+      const min = this.loopBaseOffset;
+      const max = this.loopBaseOffset + span - 1;
+      if(displayIndex < min){
+        displayIndex += span;
+        this._suspend = true;
+        this.el.scrollTop += span * this.itemHeight;
+        this._suspend = false;
+      } else if(displayIndex > max){
+        displayIndex -= span;
+        this._suspend = true;
+        this.el.scrollTop -= span * this.itemHeight;
+        this._suspend = false;
+      }
     }
+
+    displayIndex = Math.max(0, Math.min(this.displayCount - 1, displayIndex));
+    const node = this.el.children[displayIndex];
+    const baseIndex = node ? parseInt(node.dataset.baseIndex ?? '0', 10) : 0;
+
+    this.currentDisplayIndex = displayIndex;
+    const changed = baseIndex !== this.currentIndex;
+    this.currentIndex = baseIndex;
+    this.applySelection();
+    if(changed) this.emitChange();
   }
 
   applySelection(){
-    const items = this.el.querySelectorAll('.picker-item');
-    items.forEach((node, index)=>{
-      const selected = index === this.currentIndex;
-      node.classList.toggle('selected', selected);
-      node.setAttribute('aria-selected', selected ? 'true' : 'false');
-    });
+    if(!this.el) return;
+    const items = this.el.children;
+    for(let i=0; i<items.length; i++){
+      const selected = i === this.currentDisplayIndex;
+      items[i].classList.toggle('selected', selected);
+      items[i].setAttribute('aria-selected', selected ? 'true' : 'false');
+    }
   }
 
   realign(instant){
     if(!this.values.length) return;
-    const top = Math.max(0, this.currentIndex * this.itemHeight);
+    this.jumpToDisplayIndex(instant);
+    this.applySelection();
+  }
+
+  jumpToDisplayIndex(instant){
+    if(!this.el || !this.values.length) return;
+    const top = Math.max(0, this.currentDisplayIndex * this.itemHeight);
+    const useSmooth = !instant && !this.prefersReducedMotion();
     this._suspend = true;
-    if(instant){
-      this.el.scrollTo({ top, behavior: 'auto' });
+    if(useSmooth){
+      this.el.scrollTo({ top, behavior: 'smooth' });
+      if(this._releaseTimer) clearTimeout(this._releaseTimer);
+      this._releaseTimer = setTimeout(()=>{
+        this.el.scrollTop = top;
+        this._suspend = false;
+        this.applySelection();
+      }, 240);
+    } else {
+      this.el.scrollTop = top;
       this._suspend = false;
-      return;
     }
-    const behavior = this.prefersReducedMotion() ? 'auto' : 'smooth';
-    this.el.scrollTo({ top, behavior });
-    if(this._releaseTimer) clearTimeout(this._releaseTimer);
-    const delay = behavior === 'smooth' ? 220 : 0;
-    this._releaseTimer = setTimeout(()=>{
-      this.el.scrollTo({ top, behavior: 'auto' });
-      this._suspend = false;
-      this.applySelection();
-    }, delay);
   }
 
   scrollToIndex(idx, instant=true){
     if(!this.values.length) return;
-    const clamped = Math.max(0, Math.min(this.values.length - 1, idx));
-    this.currentIndex = clamped;
+    const span = this.loopSetSize;
+    let target = idx;
+    if(this.loopEnabled){
+      target = ((idx % span) + span) % span;
+    } else {
+      target = Math.max(0, Math.min(span - 1, idx));
+    }
+    const changed = target !== this.currentIndex;
+    this.currentIndex = target;
+    this.currentDisplayIndex = this.loopEnabled ? this.loopBaseOffset + target : target;
     this.refreshMetrics();
-    const top = Math.max(0, clamped * this.itemHeight);
-    const behavior = instant || this.prefersReducedMotion() ? 'auto' : 'smooth';
-    this._suspend = true;
-    this.el.scrollTo({ top, behavior });
+    this.jumpToDisplayIndex(instant);
     this.applySelection();
-    if(this._releaseTimer) clearTimeout(this._releaseTimer);
-    const delay = behavior === 'smooth' ? 220 : 0;
-    this._releaseTimer = setTimeout(()=>{
-      this.el.scrollTo({ top, behavior: 'auto' });
-      this._suspend = false;
-      this.applySelection();
-    }, delay);
-    this.emitChange();
+    if(changed) this.emitChange();
   }
 
   setValue(value, instant=true){
@@ -335,33 +407,28 @@ class WheelColumn {
   }
 
   setOptions(values, preferredValue=null){
-    if(!Array.isArray(values) || values.length === 0 || !this.el) return;
+    if(!this.el || !Array.isArray(values)) return;
     const prevValue = this.getValue();
-    this.values = values.slice();
-    this.el.innerHTML = '';
-    const frag = document.createDocumentFragment();
-    this.values.forEach((value)=>{
-      const div = document.createElement('div');
-      div.className = 'picker-item';
-      div.textContent = value;
-      div.dataset.value = value;
-      div.setAttribute('role', 'option');
-      frag.appendChild(div);
-    });
-    this.el.appendChild(frag);
+    this.populate(values);
     this.refreshMetrics();
+    if(!this.values.length){
+      this.applySelection();
+      return;
+    }
     const targetValue = preferredValue && this.values.includes(preferredValue)
       ? preferredValue
       : (this.values.includes(prevValue) ? prevValue : this.values[0]);
-    this.scrollToIndex(this.values.indexOf(targetValue), true);
+    const targetIndex = this.values.indexOf(targetValue);
+    this.scrollToIndex(targetIndex, true);
   }
 
   getValue(){
+    if(!this.values.length) return null;
     return this.values[this.currentIndex] ?? this.values[0] ?? null;
   }
 }
 
-function createTimeWheelController({ hourSelector, minuteSelector, periodSelector, hours, minutes, periods, defaultSelection={} }){
+function createTimeWheelController({ hourSelector, minuteSelector, periodSelector, hours, minutes, periods, defaultSelection={}, loop={} }){
   const config = {
     hourSelector,
     minuteSelector,
@@ -369,6 +436,11 @@ function createTimeWheelController({ hourSelector, minuteSelector, periodSelecto
     hours: Array.isArray(hours) && hours.length ? hours.slice() : ['12'],
     minutes: Array.isArray(minutes) && minutes.length ? minutes.slice() : ['00'],
     periods: Array.isArray(periods) && periods.length ? periods.slice() : ['AM', 'PM'],
+    loop: {
+      hour:   loop.hour   !== undefined ? !!loop.hour   : true,
+      minute: loop.minute !== undefined ? !!loop.minute : true,
+      period: loop.period !== undefined ? !!loop.period : true,
+    },
   };
 
   const fallback = {
@@ -389,9 +461,9 @@ function createTimeWheelController({ hourSelector, minuteSelector, periodSelecto
       const periodEl = getEl(config.periodSelector);
       if(!hourEl || !minuteEl || !periodEl) return;
       this.wheels = {
-        hour:   new WheelColumn(hourEl, config.hours),
-        minute: new WheelColumn(minuteEl, config.minutes),
-        period: new WheelColumn(periodEl, config.periods),
+        hour:   new WheelColumn(hourEl, config.hours, { loop: config.loop.hour }),
+        minute: new WheelColumn(minuteEl, config.minutes, { loop: config.loop.minute }),
+        period: new WheelColumn(periodEl, config.periods, { loop: config.loop.period }),
       };
     },
     setSelection(parts, instant=true){
@@ -539,6 +611,7 @@ function renderGuests(){
     State.rangeStartISO = null;
     State.rangeEndISO   = null;
     State.itemsByDate   = Object.create(null);
+    State.nextItemId    = 1;
     renderCalendar(State.viewY, State.viewM);
     renderDayList(isoFor(State.selectedDate));
     renderPreview();
@@ -652,6 +725,9 @@ function renderGuests(){
     renderDayList(isoFor(date));
     renderPreview();
   }
+
+  State.focusDate = focusDate;
+  State.renderCalendar = renderCalendar;
 })();
 
 /* =========================
@@ -679,12 +755,14 @@ function renderGuests(){
 /* =========================
    Overlap detection
    ========================= */
-function hasOverlap(iso, startMins, endMins, participantIds){
+function hasOverlap(iso, startMins, endMins, participantIds, ignoreId=null){
   const day = State.itemsByDate[iso] || [];
+  const participants = Array.isArray(participantIds) ? participantIds : [];
   for(const it of day){
+    if(ignoreId != null && it.id === ignoreId) continue;
     const itStart = it.startMins;
     const itEnd   = it.endMins ?? (it.startMins + (it.duration || 60));
-    const shareGuest = (it.participantIds || []).some(id => participantIds.includes(id));
+    const shareGuest = (it.participantIds || []).some(id => participants.includes(id));
     if(shareGuest){
       if(Math.max(itStart, startMins) < Math.min(itEnd, endMins)) return true;
     }
@@ -710,6 +788,66 @@ function hasOverlap(iso, startMins, endMins, participantIds){
   });
   mo.observe(dayTitleEl, { childList:true, subtree:true });
 
+  const prevDayBtn = $$('#prevDay');
+  const nextDayBtn = $$('#nextDay');
+
+  const shiftDay = (delta)=>{
+    const newDate = addDays(State.selectedDate, delta);
+    newDate.setHours(0,0,0,0);
+    State.selectedDate = newDate;
+    State.viewY = newDate.getFullYear();
+    State.viewM = newDate.getMonth();
+    if(typeof State.renderCalendar === 'function'){
+      State.renderCalendar(State.viewY, State.viewM);
+    }
+    if(typeof State.focusDate === 'function'){
+      State.focusDate(newDate);
+    }else{
+      if(dayTitleEl){ dayTitleEl.innerHTML = formatDateWithOrdinalHTML(newDate); }
+      renderDayList(isoFor(newDate));
+      renderPreview();
+    }
+  };
+
+  prevDayBtn?.addEventListener('click', ()=> shiftDay(-1));
+  nextDayBtn?.addEventListener('click', ()=> shiftDay(1));
+
+  dayListEl.addEventListener('click', (e)=>{
+    const button = e.target.closest('.row-btn[data-action]');
+    if(!button) return;
+    const action = button.dataset.action;
+    const li = button.closest('li');
+    if(!li) return;
+    const id = parseInt(li.dataset.id, 10);
+    if(!Number.isFinite(id)) return;
+    const iso = isoFor(State.selectedDate);
+    const list = State.itemsByDate[iso] || [];
+    const item = list.find(entry => entry.id === id);
+    if(!item) return;
+
+    if(action === 'delete'){
+      if(confirm(`Delete ${item.title}?`)){
+        State.itemsByDate[iso] = list.filter(entry => entry.id !== id);
+        renderDayList(iso);
+        renderPreview();
+      }
+    } else if(action === 'edit'){
+      if(item.kind === 'dinner'){
+        DinnerPicker.open(item, iso);
+      } else if(item.kind === 'spa'){
+        SpaPicker.open(item, iso);
+      } else {
+        const updated = prompt('Update item title', item.title);
+        if(updated != null){
+          const trimmed = updated.trim();
+          if(trimmed) item.title = trimmed;
+          renderDayList(iso);
+          renderPreview();
+        }
+      }
+    }
+  });
+
   $$('#addDinner') ?.addEventListener('click', ()=> DinnerPicker.open());
   $$('#addSpa')    ?.addEventListener('click', ()=> SpaPicker.open());
   $$('#addActivity')?.addEventListener('click', ()=> alert('Activity picker coming next.'));
@@ -723,16 +861,21 @@ function locationForItem(it){
 
 /* Day list rendering with warnings */
 function renderDayList(iso){
-  const list = (State.itemsByDate[iso] || []).slice().sort((a,b)=> a.startMins - b.startMins);
-  State.itemsByDate[iso] = list;
+  const stateList = State.itemsByDate[iso] ||= [];
+  for(const item of stateList){
+    if(item && typeof item.id !== 'number'){
+      item.id = State.nextItemId++;
+    }
+  }
+  stateList.sort((a,b)=> a.startMins - b.startMins);
 
   // Lunch hint (soft): if between 11:00–14:00 free < 60 min
   if(lunchHint){
     lunchHint.hidden = true;
-    if(list.length){
+    if(stateList.length){
       const windowStart = 11*60, windowEnd = 14*60;
       const intervals = [];
-      for(const item of list){
+      for(const item of stateList){
         const start = Math.max(item.startMins, windowStart);
         const end = Math.min((item.endMins ?? item.startMins + (item.duration || 60)), windowEnd);
         if(end > start) intervals.push([start, end]);
@@ -756,19 +899,23 @@ function renderDayList(iso){
 
       const total = windowEnd - windowStart;
       const free = Math.max(0, total - busy);
-      if(intervals.length > 0 && free < 60) lunchHint.hidden = false;
+      const show = intervals.length > 0 && free < 60;
+      lunchHint.hidden = !show;
     }
   }
 
-  if(list.length === 0){
+  if(stateList.length === 0){
     dayListEl.innerHTML = '<li class="empty">No items for this day. Add one above.</li>';
     return;
   }
+
   dayListEl.innerHTML = '';
   let prev = null;
-  for(const it of list){
+  for(const it of stateList){
     const li = document.createElement('li');
     li.className = it.kind==='spa' ? 'row--spa' : it.kind==='dinner' ? 'row--dinner' : '';
+    if(it.id != null) li.dataset.id = String(it.id);
+    if(it.kind) li.dataset.kind = it.kind;
     const loc = locationForItem(it);
 
     const timeLabel = `${formatMins(it.startMins)}${it.endMins?` – ${formatMins(it.endMins)}`:''}`;
@@ -814,8 +961,19 @@ function renderDayList(iso){
       windowWarn = `<span class="pill warn inline">⏰ After expected departure (${formatMins(State.expectedDepartureMins)})</span>`;
     }
 
+    const supportsEditing = it.kind === 'dinner' || it.kind === 'spa';
+    const actionsHTML = `
+      <div class="row-actions">
+        ${supportsEditing ? '<button class="row-btn" type="button" data-action="edit">Edit</button>' : ''}
+        <button class="row-btn danger" type="button" data-action="delete">Delete</button>
+      </div>
+    `;
+
     li.innerHTML = `
-      <div class="row-main"><strong>${timeLabel}</strong> | ${it.title}</div>
+      <div class="row-top">
+        <div class="row-main"><strong>${timeLabel}</strong> | ${it.title}</div>
+        ${actionsHTML}
+      </div>
       <div class="row-meta">
         ${loc ? `<span class="tag loc">${loc}</span>` : ``}
         <span class="row-tags">${tags}</span>
@@ -825,6 +983,8 @@ function renderDayList(iso){
     dayListEl.appendChild(li);
     prev = it;
   }
+
+  State.itemsByDate[iso] = stateList;
 }
 
 /* =========================
@@ -965,13 +1125,39 @@ const DinnerMinuteOptions = {
 
 const DinnerPicker = {
   lastSelection: null,
-  open(){
+  context: null,
+  open(item=null, iso=isoFor(State.selectedDate)){
     const modal = $$('#modal-dinner'); if(!modal) return;
-    const target = this.lastSelection || dinnerTimeController.config.defaultSelection;
+    dinnerTimeController.ensure();
+    const titleEl = $$('#dinnerTitle');
+    const confirmBtn = $$('#confirmDinnerBtn');
+    const isEdit = !!item;
+    this.context = { mode: isEdit ? 'edit' : 'add', iso, item };
+    if(titleEl) titleEl.textContent = isEdit ? 'Edit Dinner Time' : 'Choose Dinner Time';
+    if(confirmBtn) confirmBtn.textContent = isEdit ? 'Update' : 'Add';
+
+    const targetParts = item
+      ? timePartsFromMins(item.startMins)
+      : (this.lastSelection || dinnerTimeController.config.defaultSelection);
+
+    const hourWheel = dinnerTimeController.wheels?.hour;
+    const minuteWheel = dinnerTimeController.wheels?.minute;
+
     modal.hidden = false;
-    requestAnimationFrame(()=> dinnerTimeController.setSelection(target, true));
+    requestAnimationFrame(()=> {
+      dinnerTimeController.setSelection(targetParts || dinnerTimeController.config.defaultSelection, true);
+      if(hourWheel && minuteWheel){
+        const hourValue = dinnerTimeController.wheels.hour.getValue();
+        const minutes = DinnerMinuteOptions[hourValue] || dinnerTimeController.config.minutes;
+        minuteWheel.setOptions(minutes, targetParts?.minute || minuteWheel.getValue());
+      }
+    });
   },
-  close(){ const modal=$$('#modal-dinner'); if(modal) modal.hidden=true; },
+  close(){
+    const modal = $$('#modal-dinner');
+    if(modal) modal.hidden = true;
+    this.context = null;
+  },
   read(){
     const sel = dinnerTimeController.read();
     this.lastSelection = sel;
@@ -1015,24 +1201,34 @@ const DinnerPicker = {
 
     if(mins < startMins || mins > endMins){ alert('Dinner must be between 5:30pm and 8:00pm.'); return; }
 
-    const iso = isoFor(State.selectedDate);
+    const context = DinnerPicker.context;
+    const iso = context?.iso ?? isoFor(State.selectedDate);
     const participants = allGuestIds();
     const start = mins, end = mins + 60;
 
-    if(hasOverlap(iso, start, end, participants)){
+    const ignoreId = context?.mode === 'edit' ? context.item?.id ?? null : null;
+    if(hasOverlap(iso, start, end, participants, ignoreId)){
       alert('That dinner overlaps with another item for at least one selected guest.');
       return;
     }
 
     const list = (State.itemsByDate[iso] ||= []);
-    list.push({
-      kind:'dinner',
-      startMins: start, endMins: end,
-      title:'Dinner at Harvest',
-      location: Config.locations.dinner,
-      notes:'',
-      participantIds: participants
-    });
+    if(context?.mode === 'edit' && context.item){
+      context.item.startMins = start;
+      context.item.endMins = end;
+      context.item.participantIds = participants;
+    } else {
+      list.push({
+        id: State.nextItemId++,
+        kind:'dinner',
+        startMins: start, endMins: end,
+        title:'Dinner at Harvest',
+        location: Config.locations.dinner,
+        notes:'',
+        participantIds: participants
+      });
+    }
+
     list.sort((a,b)=> a.startMins - b.startMins);
 
     renderDayList(iso); renderPreview();
@@ -1055,13 +1251,46 @@ const spaTimeController = createTimeWheelController({
 
 const SpaPicker = {
   lastSelection: null,
-  open(){
+  context: null,
+  open(item=null, iso=isoFor(State.selectedDate)){
     const modal = $$('#modal-spa'); if(!modal) return;
-    const target = this.lastSelection || spaTimeController.config.defaultSelection;
+    spaTimeController.ensure();
+    const titleEl = $$('#spaTitle');
+    const confirmBtn = $$('#confirmSpaBtn');
+    const isEdit = !!item;
+    this.context = { mode: isEdit ? 'edit' : 'add', iso, item };
+    if(titleEl) titleEl.textContent = isEdit ? 'Edit Spa Service' : 'Add Spa Service';
+    if(confirmBtn) confirmBtn.textContent = isEdit ? 'Update' : 'Add';
+
+    const serviceField  = $$('#spaService');
+    const durationField = $$('#spaDuration');
+    const prefField     = $$('#spaPref');
+    const cabanaField   = $$('#spaCabana');
+
+    if(item){
+      if(serviceField) serviceField.value = item.title;
+      if(durationField) durationField.value = String(item.duration);
+      if(prefField) prefField.value = item.pref;
+      if(cabanaField) cabanaField.value = item.cabana;
+    } else {
+      if(serviceField && serviceField.defaultValue !== undefined) serviceField.value = serviceField.defaultValue;
+      if(durationField && durationField.defaultValue !== undefined) durationField.value = durationField.defaultValue;
+      if(prefField && prefField.defaultValue !== undefined) prefField.value = prefField.defaultValue;
+      if(cabanaField && cabanaField.defaultValue !== undefined) cabanaField.value = cabanaField.defaultValue;
+    }
+
+    const targetParts = item
+      ? timePartsFromMins(item.startMins)
+      : (this.lastSelection || spaTimeController.config.defaultSelection);
+
     modal.hidden = false;
-    requestAnimationFrame(()=> spaTimeController.setSelection(target, true));
+    requestAnimationFrame(()=> spaTimeController.setSelection(targetParts || spaTimeController.config.defaultSelection, true));
   },
-  close(){ const modal=$$('#modal-spa'); if(modal) modal.hidden=true; },
+  close(){
+    const modal = $$('#modal-spa');
+    if(modal) modal.hidden = true;
+    this.context = null;
+  },
 };
 
 (function initSpaModal(){
@@ -1085,26 +1314,43 @@ const SpaPicker = {
     // Limit: 8:00am (480) to 7:00pm (1140)
     if(mins < 8*60 || mins > 19*60){ alert('Spa start must be between 8:00am and 7:00pm.'); return; }
 
-    const iso = isoFor(State.selectedDate);
-    const participants = activeGuestIds();
+    const context = SpaPicker.context;
+    const iso = context?.iso ?? isoFor(State.selectedDate);
+    const existing = context?.mode === 'edit' && context.item
+      ? Array.isArray(context.item.participantIds) ? context.item.participantIds.slice() : []
+      : [];
+    const toggled = activeGuestIds();
+    const participants = toggled.length ? toggled : (existing.length ? existing : toggled);
     const start = mins, end = mins + duration;
 
-    if(hasOverlap(iso, start, end, participants)){
+    const ignoreId = context?.mode === 'edit' ? context.item?.id ?? null : null;
+    if(hasOverlap(iso, start, end, participants, ignoreId)){
       alert('That spa time overlaps with another item for at least one selected guest.');
       return;
     }
 
     const list = (State.itemsByDate[iso] ||= []);
-    list.push({
-      kind:'spa',
-      title: service,
-      duration,
-      startMins: start,
-      endMins: end,
-      location: Config.locations.spa,
-      pref, cabana,
-      participantIds: participants
-    });
+    if(context?.mode === 'edit' && context.item){
+      context.item.title = service;
+      context.item.duration = duration;
+      context.item.startMins = start;
+      context.item.endMins = end;
+      context.item.pref = pref;
+      context.item.cabana = cabana;
+      context.item.participantIds = participants;
+    } else {
+      list.push({
+        id: State.nextItemId++,
+        kind:'spa',
+        title: service,
+        duration,
+        startMins: start,
+        endMins: end,
+        location: Config.locations.spa,
+        pref, cabana,
+        participantIds: participants
+      });
+    }
 
     list.sort((a,b)=> a.startMins - b.startMins);
     renderDayList(iso); renderPreview();
