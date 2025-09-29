@@ -1,0 +1,38 @@
+# Small constants & smart intro tokens for emails
+ui:
+  labels:
+    dinner_location: "Harvest"
+    spa_location: "Spa"
+  hints:
+    lunch_free_window: "Lunch window under 60 min (11–2)"
+  time_windows:
+    dinner: { start_min: 1050, end_min: 1200, step: 15 } # 17:30–20:00
+    spa:    { start_min: 480,  end_min: 1140, step: 5 }  # 08:00–19:00
+
+email_intro:
+  property_name: "Castle Hot Springs"
+  tone: "warm-professional"
+  greeting_tokens: ["Hi", "Hello"]
+  signoff_tokens: ["Warmly", "Kind regards"]
+  # Smart-intro building blocks for Codex
+  intros:
+    default:
+      lines:
+        - "{{greeting}} {{guest_names}},"
+        - "We’re excited to welcome you to {{property}}. Below is your curated itinerary."
+        - "If you’d like any changes, just let us know and we’ll adjust swiftly."
+      signoff: "{{signoff}},\nPre-Arrival Team"
+    early-arrival:
+      when:
+        expected_arrival_before_min: 720 # before 12:00 PM
+      lines:
+        - "{{greeting}} {{guest_names}},"
+        - "We see you’re arriving earlier in the day—great news! We’ll prioritize relaxing options around check-in."
+      signoff: "{{signoff}},\nPre-Arrival Team"
+    multi-guest:
+      when:
+        min_guest_count: 2
+      lines:
+        - "{{greeting}} {{guest_names}},"
+        - "We’ve coordinated the schedule so everyone has a smooth flow between activities."
+      signoff: "{{signoff}},\nPre-Arrival Team"

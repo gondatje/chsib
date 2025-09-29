@@ -1,0 +1,38 @@
+# Spa services catalog
+# - keys are stable slugs (used by code)
+# - durations (minutes) + availability window + gender preference support + cabana options
+services:
+  castle-custom-massage:
+    title: "Castle Hot Springs Custom Massage"
+    category: "Massage"
+    durations: [60, 90, 120]
+    allowed_window:
+      start_min: 480   # 8:00 AM
+      end_min: 1140    # 7:00 PM
+    gender_pref: ["NP","FT","MT"]    # No Pref / Female / Male
+    cabana: ["same","separate"]
+    notes:
+      - "Pressure tailored to guest preference."
+      - "Add-ons subject to availability."
+  castle-custom-facial:
+    title: "Castle Custom Facial"
+    category: "Facial"
+    durations: [60, 90]
+    allowed_window:
+      start_min: 480
+      end_min: 1140
+    gender_pref: ["NP","FT","MT"]
+    cabana: ["same","separate"]
+    notes:
+      - "Skin analysis + customized treatment."
+  body-renewal:
+    title: "Body Renewal"
+    category: "Body Treatment"
+    durations: [60, 90]
+    allowed_window:
+      start_min: 480
+      end_min: 1140
+    gender_pref: ["NP","FT","MT"]
+    cabana: ["same","separate"]
+    notes:
+      - "Full-body exfoliation and hydration."

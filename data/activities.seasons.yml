@@ -1,0 +1,39 @@
+# Seasons define date ranges and weekly recurring activity times inside each range.
+# Day keys: mon,tue,wed,thu,fri,sat,sun. Time format: "HH:MM" 24h.
+seasons:
+  - name: "Late Summer 2025"
+    start: "2025-08-28"
+    end:   "2025-10-15"
+    weekly:
+      mon:
+        - { slug: "guided-hike", time: "08:30" }
+        - { slug: "archery",     time: "15:00" }
+      tue:
+        - { slug: "yoga",        time: "08:00" }
+        - { slug: "archery",     time: "15:00" }
+      wed:
+        - { slug: "guided-hike", time: "08:30" }
+        - { slug: "mixology",    time: "16:00" }
+      thu:
+        - { slug: "yoga",        time: "08:00" }
+      fri:
+        - { slug: "guided-hike", time: "08:30" }
+        - { slug: "archery",     time: "15:00" }
+      sat:
+        - { slug: "yoga",        time: "08:00" }
+        - { slug: "mixology",    time: "16:00" }
+      sun:
+        - { slug: "guided-hike", time: "08:30" }
+
+  - name: "Fall 2025"
+    start: "2025-10-16"
+    end:   "2025-11-19"
+    weekly:
+      mon:
+        - { slug: "guided-hike", time: "09:00" }
+      wed:
+        - { slug: "archery",     time: "15:00" }
+      fri:
+        - { slug: "yoga",        time: "08:00" }
+      sun:
+        - { slug: "mixology",    time: "16:00" }
