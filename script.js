@@ -30,8 +30,6 @@ async function initDataStore() {
     DataStore.copySnippets       = jsyaml.load(copyY)        || DataStore.copySnippets;
 
     DataStore.ready = true;
-    hydrateConfigFromData();
-    document.dispatchEvent(new CustomEvent('datastore:ready'));// signal UI pieces
 
     // Simple sanity log so you can confirm it loaded
     console.log("[DataStore] ready ✓", {
@@ -360,16 +358,20 @@ class WheelColumn {
     }
   }
 
-  handlePointerDown(){
-    this._pointerActive = true;
-    if(this._snapTimer) clearTimeout(this._snapTimer);
-  }
+  handlePointerDown(e){
+  // prevent text selection / focus weirdness on drag
+  if(e && typeof e.preventDefault === 'function') e.preventDefault();
+  this._pointerActive = true;
+  if(this._snapTimer) clearTimeout(this._snapTimer);
+}
 
-  handlePointerUp(){
-    if(!this._pointerActive) return;
-    this._pointerActive = false;
-    this.snapToNearest();
-  }
+handlePointerUp(e){
+  if(e && typeof e.preventDefault === 'function') e.preventDefault();
+  if(!this._pointerActive) return;
+  this._pointerActive = false;
+  this.snapToNearest();
+}
+
 
   handleKeyDown(e){
     if(e.key === 'ArrowUp' || e.key === 'PageUp'){
@@ -832,10 +834,12 @@ function renderGuests(){
   }
 
   function focusDate(date){
-    if(dayTitleEl){ dayTitleEl.innerHTML = formatDateWithOrdinalHTML(date); }
-    renderDayList(isoFor(date));
-    renderPreview();
-  }
+  if(dayTitleEl){ dayTitleEl.innerHTML = formatDateWithOrdinalHTML(date); }
+  const iso = isoFor(date);
+  renderDayList(iso);
+  renderActivitiesForDate(iso);   // ← add this
+  renderPreview();
+}
 
   State.focusDate = focusDate;
   State.renderCalendar = renderCalendar;
@@ -891,11 +895,13 @@ function hasOverlap(iso, startMins, endMins, participantIds, ignoreId=null){
     const y = (new Date()).getFullYear();
     const plain = stripOrdinals(dayTitleEl.textContent || '');
     const d = new Date(`${plain}, ${y}`);
-    if(!isNaN(d.getTime())){
-      State.selectedDate = d;
-      renderDayList(isoFor(d));
-      renderPreview();
-    }
+   if(!isNaN(d.getTime())){
+  State.selectedDate = d;
+  const iso = isoFor(d);
+  renderDayList(iso);
+  renderActivitiesForDate(iso);  // ← add this
+  renderPreview();
+}
   });
   mo.observe(dayTitleEl, { childList:true, subtree:true });
 
@@ -2121,7 +2127,107 @@ const GenTimePicker = {
     GenTimePicker.close();
   });
 })();
+/* =========================
+   Daily Activities (read-only list)
+   ========================= */
+function weekdayKeyFromDate(d){
+  return ['sun','mon','tue','wed','thu','fri','sat'][d.getDay()];
+}
+function isIsoInRange(iso, startIso, endIso){
+  return iso >= startIso && iso <= endIso;
+}
+
+/** Build all activities for a given ISO date from seasons+catalog */
+function buildDayActivities(iso){
+  const ds = window.DataStore || {};
+  const seasons = Array.isArray(ds.activitiesSeasons?.seasons) ? ds.activitiesSeasons.seasons : [];
+  const catalog = ds.activitiesCatalog?.catalog || {};
+  if(!seasons.length) return [];
+
+  const d = parseISO(iso);
+  const dow = weekdayKeyFromDate(d);
+
+  // Find all active seasons covering this date (merge if multiple)
+  const active = seasons.filter(s => isIsoInRange(iso, s.start, s.end));
+  const out = [];
+
+  for(const s of active){
+    const dayList = s.weekly?.[dow] || [];
+    for(const entry of dayList){
+      const slug = entry.slug;
+      const time24 = entry.time; // "HH:MM"
+      if(!slug || !time24) continue;
+
+      const meta = catalog[slug] || {};
+      const title = meta.title || slug;
+      const duration = Number(meta.duration_min) || 60;
+
+      const startMins = minsFromHHMM(time24);
+      const endMins = startMins + duration;
+
+      out.push({
+        kind: 'activity',
+        slug,
+        title,
+        startMins,
+        endMins,
+        duration,
+        location: meta.location || '',
+        season: s.name || ''
+      });
+    }
+  }
+
+  out.sort((a,b)=> a.startMins - b.startMins);
+
+  // (Optional) de-dupe if multiple seasons define the exact same slot
+  const deduped = [];
+  const seen = new Set();
+  for(const it of out){
+    const key = `${it.slug}|${it.startMins}|${it.endMins}`;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(it);
+  }
+  return deduped;
+}
+
+/** Render read-only list with ONLY "time range | title" */
+function renderActivitiesForDate(iso){
+  const ul = document.querySelector('#activitiesAvailList');
+  if(!ul) return;
+
+  const ds = window.DataStore || {};
+  if(!ds.ready){
+    ul.innerHTML = '<li class="empty">Loading activities…</li>';
+    return;
+  }
+
+  const items = buildDayActivities(iso);
+  if(!items.length){
+    ul.innerHTML = '<li class="empty">No scheduled activities for this day.</li>';
+    return;
+  }
+
+  ul.innerHTML = '';
+  for(const it of items){
+    const li = document.createElement('li');
+    // ONLY time range + title on the line (per requirement)
+    const timeLabel = `${formatMins(it.startMins)} – ${formatMins(it.endMins)}`;
+    li.innerHTML = `
+      <div class="row-top">
+        <div class="row-main"><strong>${timeLabel}</strong> | ${it.title}</div>
+      </div>
+    `;
+    ul.appendChild(li);
+  }
+}
+
 // ---- TEMP: On-page data status pill (safe to delete later) ----
+// ✅ When data is fully loaded, re-render the activities for the current day
+document.addEventListener('chs:data-ready', () => {
+  renderActivitiesForDate(isoFor(State.selectedDate));
+});
 (function showDataStatusPill(){
   function make(text, ok=true){
     const host = document.querySelector('.topbar .brand');
