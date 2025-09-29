@@ -141,6 +141,12 @@ function minsFrom24h(label){
   return h*60 + m;
 }
 
+function activitySlotKey(slug, startMins){
+  const safeSlug = slug || '';
+  if(Number.isFinite(startMins)) return `${safeSlug}__${startMins}`;
+  return `${safeSlug}__any`;
+}
+
 /* =========================
    State & DOM
    ========================= */
@@ -1035,76 +1041,161 @@ function findSeasonForISO(iso){
 function getAvailableActivitiesForISO(iso){
   if(!DataStore.ready) return [];
   const catalog = DataStore.activitiesCatalog?.catalog || {};
-  const season = findSeasonForISO(iso);
-  if(!season) return [];
+  const seasons = Array.isArray(DataStore.activitiesSeasons?.seasons)
+    ? DataStore.activitiesSeasons.seasons
+    : [];
   const date = parseISO(iso);
   const dayKey = weekdayKey(date);
-  const entries = season.weekly?.[dayKey];
-  if(!Array.isArray(entries)) return [];
+
+  const inRange = seasons.filter(season => season?.start && season?.end && iso >= season.start && iso <= season.end);
+  let seasonsToUse = inRange.length ? inRange : seasons.filter(season => Array.isArray(season?.weekly?.[dayKey]));
+  if(seasonsToUse.length === 0){
+    seasonsToUse = seasons.slice();
+  }
+
+  const ensureInfo = (slug)=>{
+    if(!map.has(slug)){
+      const base = catalog[slug] || {};
+      map.set(slug, {
+        slug,
+        title: base.title || slug,
+        location: base.location || '',
+        defaultDuration: Number(base.duration_min) || Number(base.duration) || 60,
+        slots: new Map(),
+        seasons: new Set()
+      });
+    }
+    return map.get(slug);
+  };
 
   const map = new Map();
-  for(const entry of entries){
-    if(!entry || typeof entry.slug !== 'string') continue;
-    const slug = entry.slug;
-    const base = catalog[slug];
-    if(!base) continue;
-    const info = map.get(slug) || {
-      slug,
-      title: base.title || slug,
-      duration: Number(base.duration_min) || Number(base.duration) || 60,
-      location: base.location || '',
-      slots: []
-    };
-    if(Number.isFinite(entry.duration_min)) info.duration = entry.duration_min;
-    if(Number.isFinite(entry.duration)) info.duration = entry.duration;
-    if(entry.location) info.location = entry.location;
-    if(typeof entry.time === 'string'){
-      const mins = minsFrom24h(entry.time);
-      if(mins != null && !info.slots.includes(mins)) info.slots.push(mins);
-    }
-    if(Array.isArray(entry.times)){
-      for(const t of entry.times){
-        const mins = minsFrom24h(t);
-        if(mins != null && !info.slots.includes(mins)) info.slots.push(mins);
+  for(const season of seasonsToUse){
+    const entries = Array.isArray(season?.weekly?.[dayKey]) ? season.weekly[dayKey] : [];
+    for(const entry of entries){
+      if(!entry || typeof entry.slug !== 'string') continue;
+      const slug = entry.slug;
+      if(!catalog[slug]) continue;
+      const info = ensureInfo(slug);
+      const base = catalog[slug] || {};
+      if(typeof base.title === 'string' && !info.title) info.title = base.title;
+      if(typeof entry.title === 'string') info.title = entry.title;
+      if(entry.location) info.location = entry.location;
+      else if(!info.location && base.location) info.location = base.location;
+
+      const entryDuration = Number(entry.duration_min ?? entry.duration);
+      const fallbackDuration = Number(base.duration_min) || Number(base.duration) || info.defaultDuration || 60;
+      if(Number.isFinite(entryDuration)) info.defaultDuration = entryDuration;
+      else if(Number.isFinite(fallbackDuration) && !Number.isFinite(info.defaultDuration)) info.defaultDuration = fallbackDuration;
+
+      const times = [];
+      if(typeof entry.time === 'string') times.push(entry.time);
+      if(Array.isArray(entry.times)) times.push(...entry.times);
+
+      if(times.length === 0){
+        if(season?.name) info.seasons.add(season.name);
+        continue;
+      }
+
+      for(const raw of times){
+        const mins = minsFrom24h(raw);
+        if(mins == null) continue;
+        const key = mins;
+        const slot = info.slots.get(key) || { startMins: mins, duration: info.defaultDuration, seasons: new Set() };
+        const duration = Number(entryDuration) || info.defaultDuration || fallbackDuration || 60;
+        if(Number.isFinite(duration)) slot.duration = duration;
+        if(season?.name) slot.seasons.add(season.name);
+        info.slots.set(key, slot);
+        if(season?.name) info.seasons.add(season.name);
       }
     }
-    map.set(slug, info);
   }
 
-  const list = Array.from(map.values());
-  for(const item of list){
-    if(Array.isArray(item.slots) && item.slots.length > 1){
-      item.slots.sort((a,b)=> a-b);
-    }
-    const base = catalog[item.slug] || {};
-    if(!item.title && base.title) item.title = base.title;
-    if(!item.location && base.location) item.location = base.location;
-    item.duration = Number(item.duration) || Number(base.duration_min) || 60;
+  for(const [slug, base] of Object.entries(catalog)){
+    const info = ensureInfo(slug);
+    if(!info.title && base.title) info.title = base.title;
+    if(!info.location && base.location) info.location = base.location;
+    const baseDuration = Number(base.duration_min) || Number(base.duration);
+    if(Number.isFinite(baseDuration)) info.defaultDuration = baseDuration;
   }
-  return list.sort((a,b)=> a.title.localeCompare(b.title));
+
+  const list = Array.from(map.values()).map(info => {
+    const slots = Array.from(info.slots.values())
+      .map(slot => ({
+        startMins: slot.startMins,
+        duration: Number(slot.duration) || Number(info.defaultDuration) || 60,
+        seasons: Array.from(slot.seasons || []).filter(Boolean)
+      }))
+      .sort((a,b)=> a.startMins - b.startMins);
+    return {
+      slug: info.slug,
+      title: info.title || info.slug,
+      location: info.location || '',
+      duration: Number(info.defaultDuration) || 60,
+      slots,
+      seasons: Array.from(info.seasons).filter(Boolean)
+    };
+  });
+
+  return list.sort((a,b)=>{
+    const aStart = Number.isFinite(a.slots[0]?.startMins) ? a.slots[0].startMins : Number.POSITIVE_INFINITY;
+    const bStart = Number.isFinite(b.slots[0]?.startMins) ? b.slots[0].startMins : Number.POSITIVE_INFINITY;
+    if(aStart !== bStart) return aStart - bStart;
+    return a.title.localeCompare(b.title);
+  });
 }
 
-function buildActivityContext(iso, slug){
+function buildActivityContext(iso, slug, preferredStart=null){
   if(!DataStore.ready) return null;
   const catalogEntry = DataStore.activitiesCatalog?.catalog?.[slug];
   if(!catalogEntry) return null;
   const match = getAvailableActivitiesForISO(iso).find(item => item.slug === slug);
-  const context = match ? { ...match } : {
+  const baseDuration = Number(catalogEntry.duration_min) || Number(catalogEntry.duration) || 60;
+  const context = match ? {
+    slug,
+    title: match.title || catalogEntry.title || slug,
+    duration: Number(match.duration) || baseDuration,
+    location: match.location || catalogEntry.location || '',
+    slots: Array.isArray(match.slots) ? match.slots.map(slot => slot.startMins).filter(min => Number.isFinite(min)) : [],
+    slotDurations: new Map()
+  } : {
     slug,
     title: catalogEntry.title || slug,
-    duration: Number(catalogEntry.duration_min) || Number(catalogEntry.duration) || 60,
+    duration: baseDuration,
     location: catalogEntry.location || '',
-    slots: []
+    slots: [],
+    slotDurations: new Map()
   };
-  context.duration = Number(context.duration) || Number(catalogEntry.duration_min) || 60;
+
+  if(match && Array.isArray(match.slots)){
+    for(const slot of match.slots){
+      if(!Number.isFinite(slot?.startMins)) continue;
+      const duration = Number(slot.duration);
+      if(Number.isFinite(duration)){
+        context.slotDurations.set(slot.startMins, duration);
+      }
+    }
+  }
+
+  if(!context.title && catalogEntry.title) context.title = catalogEntry.title;
   if(!context.location && catalogEntry.location) context.location = catalogEntry.location;
-  context.slots = Array.isArray(context.slots) ? context.slots.slice().sort((a,b)=> a-b) : [];
+  if(!Number.isFinite(context.duration)) context.duration = baseDuration || 60;
+  context.slots = Array.isArray(context.slots) ? Array.from(new Set(context.slots)).sort((a,b)=> a-b) : [];
+
+  if(Number.isFinite(preferredStart) && !context.slots.includes(preferredStart)){
+    context.slots.push(preferredStart);
+    context.slotDurations.set(preferredStart, context.slotDurations.get(preferredStart) ?? context.duration);
+    context.slots.sort((a,b)=> a-b);
+  }
+
   return context;
 }
 
 function scheduleActivityForGuests(iso, context, startMins, guestIds){
   if(!context || !Array.isArray(guestIds) || guestIds.length === 0) return false;
-  const duration = Number(context.duration) || 60;
+  const slotDuration = (Number.isFinite(startMins) && context.slotDurations instanceof Map)
+    ? context.slotDurations.get(startMins)
+    : null;
+  const duration = Number(slotDuration) || Number(context.duration) || 60;
   const endMins = startMins + duration;
   if(hasOverlap(iso, startMins, endMins, guestIds)){
     alert('That activity overlaps with another item for at least one selected guest.');
@@ -1142,12 +1233,13 @@ function scheduleActivityForGuests(iso, context, startMins, guestIds){
   return true;
 }
 
-function removeGuestsFromActivity(iso, slug, guestIds){
+function removeGuestsFromActivity(iso, slug, guestIds, startMins=null){
   if(!Array.isArray(guestIds) || guestIds.length === 0) return;
   const list = State.itemsByDate[iso] || [];
   let changed = false;
   for(const item of list){
     if(item?.kind !== 'activity' || item.activitySlug !== slug) continue;
+    if(Number.isFinite(startMins) && item.startMins !== startMins) continue;
     const original = Array.isArray(item.participantIds) ? item.participantIds.slice() : [];
     const remaining = original.filter(id => !guestIds.includes(id));
     if(remaining.length !== original.length){
@@ -1191,44 +1283,105 @@ function renderActivitiesCatalog(iso=isoFor(State.selectedDate), stateList=null)
   const participantMap = new Map();
   for(const item of list){
     if(item?.kind === 'activity' && item.activitySlug){
-      const set = participantMap.get(item.activitySlug) || new Set();
+      const key = activitySlotKey(item.activitySlug, Number.isFinite(item.startMins) ? item.startMins : null);
+      const set = participantMap.get(key) || new Set();
       (item.participantIds || []).forEach(id => set.add(id));
-      participantMap.set(item.activitySlug, set);
+      participantMap.set(key, set);
+
+      const anyKey = activitySlotKey(item.activitySlug, null);
+      const anySet = participantMap.get(anyKey) || new Set();
+      (item.participantIds || []).forEach(id => anySet.add(id));
+      participantMap.set(anyKey, anySet);
     }
   }
 
   const frag = document.createDocumentFragment();
   for(const activity of available){
-    const li = document.createElement('li');
-    li.className = 'catalog-item';
-    const label = document.createElement('label');
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'catalog-checkbox';
-    checkbox.dataset.slug = activity.slug;
-    label.appendChild(checkbox);
+    const slots = Array.isArray(activity.slots) && activity.slots.length ? activity.slots : [null];
+    for(const slot of slots){
+      const li = document.createElement('li');
+      li.className = 'catalog-item';
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'catalog-checkbox';
+      checkbox.dataset.slug = activity.slug;
+      if(Number.isFinite(slot?.startMins)){
+        checkbox.dataset.start = String(slot.startMins);
+      } else {
+        checkbox.dataset.start = '';
+      }
+      label.appendChild(checkbox);
 
-    const textWrap = document.createElement('span');
-    textWrap.className = 'catalog-text';
-    const duration = Number(activity.duration);
-    const durationSpan = document.createElement('span');
-    durationSpan.className = 'catalog-duration';
-    durationSpan.textContent = `[${Number.isFinite(duration) ? duration : '—'}m]`;
-    const titleSpan = document.createElement('span');
-    titleSpan.className = 'catalog-title-text';
-    titleSpan.textContent = activity.title;
-    textWrap.appendChild(durationSpan);
-    textWrap.appendChild(titleSpan);
-    label.appendChild(textWrap);
-    li.appendChild(label);
+      const textWrap = document.createElement('span');
+      textWrap.className = 'catalog-text';
 
-    if(relevantIds.length && participantMap.has(activity.slug)){
-      const set = participantMap.get(activity.slug);
-      const allScheduled = relevantIds.every(id => set.has(id));
-      checkbox.checked = allScheduled;
+      const duration = Number(slot?.duration) || Number(activity.duration);
+      const durationSpan = document.createElement('span');
+      durationSpan.className = 'catalog-duration';
+      durationSpan.textContent = `[${Number.isFinite(duration) ? duration : '—'}m]`;
+
+      const mainWrap = document.createElement('span');
+      mainWrap.className = 'catalog-main';
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'catalog-title-text';
+      titleSpan.textContent = activity.title;
+
+      const subLine = document.createElement('span');
+      subLine.className = 'catalog-subline';
+      const hasSlot = Number.isFinite(slot?.startMins);
+      if(hasSlot){
+        const end = slot.startMins + (Number(slot?.duration) || Number(activity.duration) || 60);
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'catalog-time';
+        timeSpan.textContent = `${formatMins(slot.startMins)} – ${formatMins(end)}`;
+        subLine.appendChild(timeSpan);
+      } else {
+        const flexibleSpan = document.createElement('span');
+        flexibleSpan.className = 'catalog-time';
+        flexibleSpan.textContent = 'Choose time…';
+        subLine.appendChild(flexibleSpan);
+      }
+
+      if(activity.location){
+        const locSpan = document.createElement('span');
+        locSpan.className = 'catalog-location';
+        locSpan.textContent = activity.location;
+        subLine.appendChild(locSpan);
+      }
+
+      const seasons = Array.isArray(slot?.seasons) && slot.seasons.length
+        ? slot.seasons
+        : Array.isArray(activity.seasons) ? activity.seasons : [];
+      if(seasons.length){
+        const seasonSpan = document.createElement('span');
+        seasonSpan.className = 'catalog-season';
+        seasonSpan.textContent = seasons.join(' • ');
+        subLine.appendChild(seasonSpan);
+      }
+
+      mainWrap.appendChild(titleSpan);
+      if(subLine.childElementCount > 0){
+        mainWrap.appendChild(subLine);
+      }
+
+      textWrap.appendChild(durationSpan);
+      textWrap.appendChild(mainWrap);
+      label.appendChild(textWrap);
+      li.appendChild(label);
+
+      if(relevantIds.length){
+        const key = activitySlotKey(activity.slug, Number.isFinite(slot?.startMins) ? slot.startMins : null);
+        if(participantMap.has(key)){
+          const set = participantMap.get(key);
+          const allScheduled = relevantIds.every(id => set.has(id));
+          checkbox.checked = allScheduled;
+        }
+      }
+
+      frag.appendChild(li);
     }
-
-    frag.appendChild(li);
   }
 
   activitiesCatalogEl.innerHTML = '';
@@ -1240,6 +1393,9 @@ async function handleActivityCatalogChange(event){
   if(!checkbox) return;
   const slug = checkbox.dataset.slug;
   if(!slug) return;
+  const startAttr = checkbox.dataset.start;
+  const fixedStart = (startAttr ?? '') !== '' ? parseInt(startAttr, 10) : null;
+  const hasFixedStart = Number.isFinite(fixedStart);
 
   const iso = isoFor(State.selectedDate);
   const activeIds = activeGuestIds();
@@ -1253,24 +1409,32 @@ async function handleActivityCatalogChange(event){
 
   if(checkbox.checked){
     checkbox.checked = false;
-    const context = buildActivityContext(iso, slug);
+    const context = buildActivityContext(iso, slug, hasFixedStart ? fixedStart : null);
     if(!context){
       alert('That activity is unavailable for the selected date.');
       renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
       return;
     }
     try{
+      let selectedStart = hasFixedStart ? fixedStart : null;
+      if(selectedStart == null){
+        if(Array.isArray(context.slots) && context.slots.length === 1){
+          selectedStart = context.slots[0];
+        }
+      }
+
       let startMins;
-      if(Array.isArray(context.slots) && context.slots.length === 1){
-        startMins = context.slots[0];
-      } else {
+      if(selectedStart == null){
         startMins = await ActivityTimePicker.requestStart({
           title: context.title,
           slots: Array.isArray(context.slots) ? context.slots : [],
           duration: context.duration
         });
+      } else {
+        startMins = selectedStart;
       }
-      if(startMins == null){
+
+      if(startMins == null || Number.isNaN(startMins)){
         renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
         return;
       }
@@ -1282,7 +1446,7 @@ async function handleActivityCatalogChange(event){
       renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
     }
   } else {
-    removeGuestsFromActivity(iso, slug, targetGuests);
+    removeGuestsFromActivity(iso, slug, targetGuests, hasFixedStart ? fixedStart : null);
   }
 }
 
