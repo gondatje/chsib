@@ -1,5 +1,49 @@
 console.log("Itinerary Builder is working ✅");
+/* ========= Data bootstrap (YAML -> JS) ========= */
+window.DataStore = {
+  spaMenu: { services: {} },
+  activitiesCatalog: { catalog: {} },
+  activitiesSeasons: { seasons: [] },
+  copySnippets: { ui: {}, email_intro: {} },
+  ready: false,
+};
 
+async function loadText(path) {
+  const res = await fetch(path, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
+  return await res.text();
+}
+
+async function initDataStore() {
+  try {
+    const [spaY, actCatY, actSeasonsY, copyY] = await Promise.all([
+      loadText("data/spa.menu.yml"),
+      loadText("data/activities.catalog.yml"),
+      loadText("data/activities.seasons.yml"),
+      loadText("data/copy.snippets.yml"),
+    ]);
+
+    // js-yaml provided by index.html CDN
+    DataStore.spaMenu            = jsyaml.load(spaY)         || DataStore.spaMenu;
+    DataStore.activitiesCatalog  = jsyaml.load(actCatY)      || DataStore.activitiesCatalog;
+    DataStore.activitiesSeasons  = jsyaml.load(actSeasonsY)  || DataStore.activitiesSeasons;
+    DataStore.copySnippets       = jsyaml.load(copyY)        || DataStore.copySnippets;
+
+    DataStore.ready = true;
+
+    // Simple sanity log so you can confirm it loaded
+    console.log("[DataStore] ready ✓", {
+      spaServices: Object.keys(DataStore.spaMenu.services || {}).length,
+      activities:  Object.keys(DataStore.activitiesCatalog.catalog || {}).length,
+      seasons:     (DataStore.activitiesSeasons.seasons || []).length,
+    });
+  } catch (err) {
+    console.error("[DataStore] load error", err);
+  }
+}
+
+// Kick off loading but don’t block the UI
+initDataStore();
 /* =========================
    Config
    ========================= */
@@ -1426,4 +1470,41 @@ const GenTimePicker = {
     renderDayList(isoFor(State.selectedDate));
     GenTimePicker.close();
   });
+})();
+// ---- TEMP: On-page data status pill (safe to delete later) ----
+(function showDataStatusPill(){
+  function make(text, ok=true){
+    const host = document.querySelector('.topbar .brand');
+    if(!host) return;
+    const pill = document.createElement('span');
+    pill.style.cssText = `
+      margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; border:1px solid #e0e0e0;
+      background:${ok ? '#e8f7ef' : '#fff4f2'}; color:${ok ? '#1e6b47' : '#9a2f1f'};
+      vertical-align: middle;
+    `;
+    pill.textContent = text;
+    host.appendChild(pill);
+  }
+
+  let tries = 0;
+  const timer = setInterval(()=>{
+    tries++;
+
+    const ds = window.DataStore || {};
+    const spa = Object.keys(ds.spaMenu?.services || {}).length;
+    const acts = Object.keys(ds.activitiesCatalog?.catalog || {}).length;
+    const seas = Array.isArray(ds.activitiesSeasons?.seasons) ? ds.activitiesSeasons.seasons.length : 0;
+
+    // Wait a bit while data hydrates
+    if(!ds.ready && tries < 6){
+      if(tries === 1) make('data: loading…', true);
+      return;
+    }
+
+    // Update pill
+    document.querySelectorAll('.topbar .brand > span').forEach((el,i)=>{ if(i>0) el.remove(); });
+    make(`data ✓  spa:${spa}  act:${acts}  seasons:${seas}`, true);
+    clearInterval(timer);
+  }, 500);
 })();
