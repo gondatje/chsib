@@ -30,6 +30,8 @@ async function initDataStore() {
     DataStore.copySnippets       = jsyaml.load(copyY)        || DataStore.copySnippets;
 
     DataStore.ready = true;
+    hydrateConfigFromData();
+    document.dispatchEvent(new CustomEvent('datastore:ready'));// signal UI pieces
 
     // Simple sanity log so you can confirm it loaded
     console.log("[DataStore] ready ✓", {
@@ -42,8 +44,31 @@ async function initDataStore() {
   }
 }
 
+function hydrateConfigFromData(){
+  const labels = DataStore.copySnippets?.ui?.labels || {};
+  if(labels.dinner_location) Config.locations.dinner = labels.dinner_location;
+  if(labels.spa_location) Config.locations.spa = labels.spa_location;
+
+  const hints = DataStore.copySnippets?.ui?.hints || {};
+  if(typeof hints.lunch_free_window === 'string'){
+    LunchHintBase = hints.lunch_free_window;
+    if(lunchHint) lunchHint.textContent = LunchHintBase;
+  } else if(lunchHint){
+    lunchHint.textContent = LunchHintBase;
+  }
+
+  const dinnerWindow = DataStore.copySnippets?.ui?.time_windows?.dinner || {};
+  if(Number.isFinite(dinnerWindow.start_min)) Config.dinner.startMins = dinnerWindow.start_min;
+  if(Number.isFinite(dinnerWindow.end_min))   Config.dinner.endMins   = dinnerWindow.end_min;
+  if(Number.isFinite(dinnerWindow.step))      Config.dinner.step      = dinnerWindow.step;
+}
+
 // Kick off loading but don’t block the UI
 initDataStore();
+document.addEventListener('datastore:ready', ()=>{
+  renderActivitiesCatalog(isoFor(State.selectedDate));
+  updateLunchHint(isoFor(State.selectedDate), State.itemsByDate[isoFor(State.selectedDate)] || []);
+});
 /* =========================
    Config
    ========================= */
@@ -94,10 +119,26 @@ function parseISO(iso){ const [y,m,dd]=iso.split('-').map(Number); return new Da
 function addDays(d, n){ const x = new Date(d); x.setDate(x.getDate()+n); return x; }
 function isSameDate(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
 function firstName(name){ return (name||'').trim().split(/\s+/)[0] || ''; }
+function initials(name){
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  if(parts.length === 0) return '';
+  return parts[0].charAt(0).toUpperCase() || '';
+}
 function hhmmAPToMins(hour12, minute, period){
   let h = parseInt(hour12,10) % 12;
   if(period==='PM') h += 12;
   return h*60 + parseInt(minute,10);
+}
+
+const WEEKDAY_KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
+function weekdayKey(date){ return WEEKDAY_KEYS[date.getDay()]; }
+function minsFrom24h(label){
+  if(typeof label !== 'string') return null;
+  const match = label.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if(!match) return null;
+  const h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  return h*60 + m;
 }
 
 /* =========================
@@ -128,10 +169,18 @@ const dayListEl  = $$('#dayList');
 const itineraryBody = $$('#itineraryBody');
 const copyBtn    = $$('#copyBtn');
 const lunchHint  = $$('#lunchHint');
+let LunchHintBase = 'Lunch window under 60 min (11–2)';
 
 /* Guests DOM */
 const guestsChipsEl = $$('#guestsChips');
 const addGuestBtn   = $$('#addGuestBtn');
+const toggleAllGuestsBtn = $$('#toggleAllGuests');
+
+const activitiesCatalogEl = $$('#activitiesCatalogList');
+const activitiesCatalogWrap = $$('#activitiesCatalog');
+if(activitiesCatalogEl){
+  activitiesCatalogEl.addEventListener('change', handleActivityCatalogChange);
+}
 
 /* IO editor DOM */
 const ioCheckInTime  = $$('#ioCheckInTime');
@@ -574,6 +623,11 @@ function allGuestsActive(){ return State.guests.length>0 && State.guests.every(g
 function renderGuests(){
   if(!guestsChipsEl) return;
   guestsChipsEl.innerHTML = '';
+  if(toggleAllGuestsBtn){
+    const hasGuests = State.guests.length > 0;
+    toggleAllGuestsBtn.disabled = !hasGuests;
+    toggleAllGuestsBtn.setAttribute('aria-pressed', hasGuests && allGuestsActive() ? 'true' : 'false');
+  }
   if(State.guests.length===0){
     guestsChipsEl.innerHTML = `<span class="muted" style="padding:4px 0;">No guests yet</span>`;
     return;
@@ -614,6 +668,13 @@ function renderGuests(){
     if(!input) return;
     const g = { id: State.nextGuestId++, name: input, active: true, primary: State.guests.length===0 };
     State.guests.push(g);
+    renderGuests(); renderDayList(isoFor(State.selectedDate)); renderPreview();
+  });
+
+  toggleAllGuestsBtn?.addEventListener('click', ()=>{
+    if(State.guests.length === 0) return;
+    const shouldActivate = !allGuestsActive();
+    State.guests.forEach(g => g.active = shouldActivate);
     renderGuests(); renderDayList(isoFor(State.selectedDate)); renderPreview();
   });
 
@@ -904,6 +965,327 @@ function locationForItem(it){
 }
 
 /* Day list rendering with warnings */
+function updateLunchHint(iso, stateList){
+  if(!lunchHint) return;
+  lunchHint.textContent = LunchHintBase;
+  lunchHint.hidden = true;
+
+  const totalGuests = State.guests.length;
+  if(totalGuests === 0) return;
+  const activeIds = activeGuestIds();
+  const targetGuestIds = activeIds.length ? activeIds : allGuestIds();
+  if(targetGuestIds.length === 0) return;
+
+  const list = Array.isArray(stateList) ? stateList : [];
+  const windowStart = 11 * 60;
+  const windowEnd = 14 * 60;
+  const impacted = new Set();
+
+  for(const guestId of targetGuestIds){
+    const intervals = [];
+    for(const item of list){
+      if(!Array.isArray(item?.participantIds) || !item.participantIds.includes(guestId)) continue;
+      const start = Math.max(item.startMins, windowStart);
+      const end = Math.min((item.endMins ?? item.startMins + (item.duration || 60)), windowEnd);
+      if(end > start) intervals.push([start, end]);
+    }
+    if(intervals.length === 0) continue;
+    intervals.sort((a,b)=> a[0] - b[0]);
+    let [curStart, curEnd] = intervals[0];
+    let busy = 0;
+    for(let i=1; i<intervals.length; i++){
+      const [s,e] = intervals[i];
+      if(s <= curEnd){
+        curEnd = Math.max(curEnd, e);
+      } else {
+        busy += curEnd - curStart;
+        curStart = s;
+        curEnd = e;
+      }
+    }
+    busy += curEnd - curStart;
+    const free = Math.max(0, (windowEnd - windowStart) - busy);
+    if(free < 60){
+      impacted.add(guestId);
+    }
+  }
+
+  if(impacted.size > 0){
+    const labels = State.guests
+      .filter(g => impacted.has(g.id))
+      .map(g => initials(g.name))
+      .filter(Boolean);
+    lunchHint.textContent = labels.length
+      ? `${LunchHintBase} — ${labels.join(', ')}`
+      : LunchHintBase;
+    lunchHint.hidden = false;
+  }
+}
+
+function findSeasonForISO(iso){
+  const seasons = DataStore.activitiesSeasons?.seasons;
+  if(!Array.isArray(seasons)) return null;
+  for(const season of seasons){
+    if(!season?.start || !season?.end) continue;
+    if(iso >= season.start && iso <= season.end) return season;
+  }
+  return null;
+}
+
+function getAvailableActivitiesForISO(iso){
+  if(!DataStore.ready) return [];
+  const catalog = DataStore.activitiesCatalog?.catalog || {};
+  const season = findSeasonForISO(iso);
+  if(!season) return [];
+  const date = parseISO(iso);
+  const dayKey = weekdayKey(date);
+  const entries = season.weekly?.[dayKey];
+  if(!Array.isArray(entries)) return [];
+
+  const map = new Map();
+  for(const entry of entries){
+    if(!entry || typeof entry.slug !== 'string') continue;
+    const slug = entry.slug;
+    const base = catalog[slug];
+    if(!base) continue;
+    const info = map.get(slug) || {
+      slug,
+      title: base.title || slug,
+      duration: Number(base.duration_min) || Number(base.duration) || 60,
+      location: base.location || '',
+      slots: []
+    };
+    if(Number.isFinite(entry.duration_min)) info.duration = entry.duration_min;
+    if(Number.isFinite(entry.duration)) info.duration = entry.duration;
+    if(entry.location) info.location = entry.location;
+    if(typeof entry.time === 'string'){
+      const mins = minsFrom24h(entry.time);
+      if(mins != null && !info.slots.includes(mins)) info.slots.push(mins);
+    }
+    if(Array.isArray(entry.times)){
+      for(const t of entry.times){
+        const mins = minsFrom24h(t);
+        if(mins != null && !info.slots.includes(mins)) info.slots.push(mins);
+      }
+    }
+    map.set(slug, info);
+  }
+
+  const list = Array.from(map.values());
+  for(const item of list){
+    if(Array.isArray(item.slots) && item.slots.length > 1){
+      item.slots.sort((a,b)=> a-b);
+    }
+    const base = catalog[item.slug] || {};
+    if(!item.title && base.title) item.title = base.title;
+    if(!item.location && base.location) item.location = base.location;
+    item.duration = Number(item.duration) || Number(base.duration_min) || 60;
+  }
+  return list.sort((a,b)=> a.title.localeCompare(b.title));
+}
+
+function buildActivityContext(iso, slug){
+  if(!DataStore.ready) return null;
+  const catalogEntry = DataStore.activitiesCatalog?.catalog?.[slug];
+  if(!catalogEntry) return null;
+  const match = getAvailableActivitiesForISO(iso).find(item => item.slug === slug);
+  const context = match ? { ...match } : {
+    slug,
+    title: catalogEntry.title || slug,
+    duration: Number(catalogEntry.duration_min) || Number(catalogEntry.duration) || 60,
+    location: catalogEntry.location || '',
+    slots: []
+  };
+  context.duration = Number(context.duration) || Number(catalogEntry.duration_min) || 60;
+  if(!context.location && catalogEntry.location) context.location = catalogEntry.location;
+  context.slots = Array.isArray(context.slots) ? context.slots.slice().sort((a,b)=> a-b) : [];
+  return context;
+}
+
+function scheduleActivityForGuests(iso, context, startMins, guestIds){
+  if(!context || !Array.isArray(guestIds) || guestIds.length === 0) return false;
+  const duration = Number(context.duration) || 60;
+  const endMins = startMins + duration;
+  if(hasOverlap(iso, startMins, endMins, guestIds)){
+    alert('That activity overlaps with another item for at least one selected guest.');
+    return false;
+  }
+
+  const list = (State.itemsByDate[iso] ||= []);
+  const existing = list.find(it => it.kind==='activity' && it.activitySlug === context.slug && it.startMins === startMins);
+  if(existing){
+    const merged = new Set(existing.participantIds || []);
+    guestIds.forEach(id => merged.add(id));
+    existing.participantIds = Array.from(merged);
+    existing.duration = duration;
+    existing.endMins = startMins + duration;
+    existing.title = context.title;
+    if(context.location) existing.location = context.location;
+  } else {
+    list.push({
+      id: State.nextItemId++,
+      kind:'activity',
+      activitySlug: context.slug,
+      title: context.title,
+      startMins,
+      endMins,
+      duration,
+      location: context.location || '',
+      participantIds: guestIds.slice()
+    });
+  }
+
+  list.sort((a,b)=> a.startMins - b.startMins);
+  State.itemsByDate[iso] = list;
+  renderDayList(iso);
+  renderPreview();
+  return true;
+}
+
+function removeGuestsFromActivity(iso, slug, guestIds){
+  if(!Array.isArray(guestIds) || guestIds.length === 0) return;
+  const list = State.itemsByDate[iso] || [];
+  let changed = false;
+  for(const item of list){
+    if(item?.kind !== 'activity' || item.activitySlug !== slug) continue;
+    const original = Array.isArray(item.participantIds) ? item.participantIds.slice() : [];
+    const remaining = original.filter(id => !guestIds.includes(id));
+    if(remaining.length !== original.length){
+      changed = true;
+      if(remaining.length === 0){
+        item._remove = true;
+      } else {
+        item.participantIds = remaining;
+      }
+    }
+  }
+  if(!changed){
+    renderActivitiesCatalog(iso, list);
+    return;
+  }
+  const updated = list.filter(it => !it._remove);
+  for(const it of updated){ delete it._remove; }
+  State.itemsByDate[iso] = updated;
+  renderDayList(iso);
+  renderPreview();
+}
+
+// Wave 1 Activities catalog renderer & checkbox wiring
+function renderActivitiesCatalog(iso=isoFor(State.selectedDate), stateList=null){
+  if(!activitiesCatalogEl) return;
+  if(!DataStore.ready){
+    activitiesCatalogEl.innerHTML = '<li class="empty">Loading activities…</li>';
+    return;
+  }
+  const available = getAvailableActivitiesForISO(iso);
+  if(available.length === 0){
+    activitiesCatalogEl.innerHTML = '<li class="empty">No catalog activities for this date.</li>';
+    return;
+  }
+
+  const relevantIds = (()=>{
+    const ids = activeGuestIds();
+    return ids.length ? ids : allGuestIds();
+  })();
+  const list = Array.isArray(stateList) ? stateList : (State.itemsByDate[iso] || []);
+  const participantMap = new Map();
+  for(const item of list){
+    if(item?.kind === 'activity' && item.activitySlug){
+      const set = participantMap.get(item.activitySlug) || new Set();
+      (item.participantIds || []).forEach(id => set.add(id));
+      participantMap.set(item.activitySlug, set);
+    }
+  }
+
+  const frag = document.createDocumentFragment();
+  for(const activity of available){
+    const li = document.createElement('li');
+    li.className = 'catalog-item';
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'catalog-checkbox';
+    checkbox.dataset.slug = activity.slug;
+    label.appendChild(checkbox);
+
+    const textWrap = document.createElement('span');
+    textWrap.className = 'catalog-text';
+    const duration = Number(activity.duration);
+    const durationSpan = document.createElement('span');
+    durationSpan.className = 'catalog-duration';
+    durationSpan.textContent = `[${Number.isFinite(duration) ? duration : '—'}m]`;
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'catalog-title-text';
+    titleSpan.textContent = activity.title;
+    textWrap.appendChild(durationSpan);
+    textWrap.appendChild(titleSpan);
+    label.appendChild(textWrap);
+    li.appendChild(label);
+
+    if(relevantIds.length && participantMap.has(activity.slug)){
+      const set = participantMap.get(activity.slug);
+      const allScheduled = relevantIds.every(id => set.has(id));
+      checkbox.checked = allScheduled;
+    }
+
+    frag.appendChild(li);
+  }
+
+  activitiesCatalogEl.innerHTML = '';
+  activitiesCatalogEl.appendChild(frag);
+}
+
+async function handleActivityCatalogChange(event){
+  const checkbox = event.target?.closest('.catalog-checkbox');
+  if(!checkbox) return;
+  const slug = checkbox.dataset.slug;
+  if(!slug) return;
+
+  const iso = isoFor(State.selectedDate);
+  const activeIds = activeGuestIds();
+  const targetGuests = activeIds.length ? activeIds : allGuestIds();
+  if(targetGuests.length === 0){
+    alert('Add a guest first, then assign activities.');
+    checkbox.checked = false;
+    renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
+    return;
+  }
+
+  if(checkbox.checked){
+    checkbox.checked = false;
+    const context = buildActivityContext(iso, slug);
+    if(!context){
+      alert('That activity is unavailable for the selected date.');
+      renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
+      return;
+    }
+    try{
+      let startMins;
+      if(Array.isArray(context.slots) && context.slots.length === 1){
+        startMins = context.slots[0];
+      } else {
+        startMins = await ActivityTimePicker.requestStart({
+          title: context.title,
+          slots: Array.isArray(context.slots) ? context.slots : [],
+          duration: context.duration
+        });
+      }
+      if(startMins == null){
+        renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
+        return;
+      }
+      const success = scheduleActivityForGuests(iso, context, startMins, targetGuests);
+      if(!success){
+        renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
+      }
+    } catch(err){
+      renderActivitiesCatalog(iso, State.itemsByDate[iso] || []);
+    }
+  } else {
+    removeGuestsFromActivity(iso, slug, targetGuests);
+  }
+}
+
 function renderDayList(iso){
   const stateList = State.itemsByDate[iso] ||= [];
   for(const item of stateList){
@@ -914,42 +1296,11 @@ function renderDayList(iso){
   stateList.sort((a,b)=> a.startMins - b.startMins);
 
   // Lunch hint (soft): if between 11:00–14:00 free < 60 min
-  if(lunchHint){
-    lunchHint.hidden = true;
-    if(stateList.length){
-      const windowStart = 11*60, windowEnd = 14*60;
-      const intervals = [];
-      for(const item of stateList){
-        const start = Math.max(item.startMins, windowStart);
-        const end = Math.min((item.endMins ?? item.startMins + (item.duration || 60)), windowEnd);
-        if(end > start) intervals.push([start, end]);
-      }
-
-      intervals.sort((a,b)=> a[0] - b[0]);
-
-      let busy = 0;
-      let current = null;
-      for(const [start, end] of intervals){
-        if(!current){
-          current = [start, end];
-        }else if(start <= current[1]){
-          current[1] = Math.max(current[1], end);
-        }else{
-          busy += current[1] - current[0];
-          current = [start, end];
-        }
-      }
-      if(current) busy += current[1] - current[0];
-
-      const total = windowEnd - windowStart;
-      const free = Math.max(0, total - busy);
-      const show = intervals.length > 0 && free < 60;
-      lunchHint.hidden = !show;
-    }
-  }
+  updateLunchHint(iso, stateList);
 
   if(stateList.length === 0){
     dayListEl.innerHTML = '<li class="empty">No items for this day. Add one above.</li>';
+    renderActivitiesCatalog(iso, stateList);
     return;
   }
 
@@ -980,7 +1331,8 @@ function renderDayList(iso){
           .filter(g=> participantSet.has(g.id))
           .map(g=>{
             const s = guestStyle(g);
-            return `<span class="tag guest" style="background:${s.bg}; border-color:${s.border}; color:${s.text}">${firstName(g.name)}</span>`;
+            const label = initials(g.name) || firstName(g.name);
+            return `<span class="tag guest initial" style="background:${s.bg}; border-color:${s.border}; color:${s.text}">${label}</span>`;
           });
         tags = colored.join('');
       }
@@ -1008,14 +1360,14 @@ function renderDayList(iso){
     const supportsEditing = it.kind === 'dinner' || it.kind === 'spa';
     const actionsHTML = `
       <div class="row-actions">
-        ${supportsEditing ? '<button class="row-btn" type="button" data-action="edit">Edit</button>' : ''}
-        <button class="row-btn danger" type="button" data-action="delete">Delete</button>
+        ${supportsEditing ? '<button class="row-btn" type="button" data-action="edit" aria-label="Edit">✎</button>' : ''}
+        <button class="row-btn danger" type="button" data-action="delete" aria-label="Delete">🗑</button>
       </div>
     `;
 
     li.innerHTML = `
       <div class="row-top">
-        <div class="row-main"><strong>${timeLabel}</strong> | ${it.title}</div>
+        <div class="row-main">${timeLabel} | ${it.title}</div>
         ${actionsHTML}
       </div>
       <div class="row-meta">
@@ -1029,6 +1381,7 @@ function renderDayList(iso){
   }
 
   State.itemsByDate[iso] = stateList;
+  renderActivitiesCatalog(iso, stateList);
 }
 
 /* =========================
@@ -1400,6 +1753,139 @@ const SpaPicker = {
     renderDayList(iso); renderPreview();
     SpaPicker.lastSelection = t;
     SpaPicker.close();
+  });
+})();
+
+/* =========================
+   Activity Time Picker
+   ========================= */
+const activityTimeController = createTimeWheelController({
+  hourSelector: '#activityHourCol',
+  minuteSelector: '#activityMinuteCol',
+  periodSelector: '#activityPeriodCol',
+  hours: ['6','7','8','9','10','11','12','1','2','3','4','5','6','7','8','9','10'],
+  minutes: ['00','05','10','15','20','25','30','35','40','45','50','55'],
+  periods: ['AM','PM'],
+  defaultSelection: { hour: '9', minute: '00', period: 'AM' }
+});
+
+const ActivityTimePicker = {
+  context: null,
+  resolver: null,
+  rejector: null,
+  slotMode: false,
+  slotSelection: null,
+  lastWheelSelection: null,
+  open(options){
+    this.context = options || {};
+    this.slotMode = Array.isArray(options?.slots) && options.slots.length > 0;
+    this.slotSelection = null;
+
+    const modal = $$('#modal-activity'); if(!modal) return;
+    const titleEl = $$('#activityModalTitle');
+    const hintEl = $$('#activityTimeHint');
+    const slotList = $$('#activitySlotList');
+    const wheelWrap = $$('#activityWheelWrap');
+    activityTimeController.ensure();
+
+    if(titleEl) titleEl.textContent = options?.title ? `Schedule ${options.title}` : 'Schedule Activity';
+
+    if(this.slotMode){
+      if(wheelWrap) wheelWrap.hidden = true;
+      if(slotList){
+        slotList.hidden = false;
+        slotList.innerHTML = '';
+        const frag = document.createDocumentFragment();
+        const slots = options.slots.slice().sort((a,b)=> a-b);
+        slots.forEach(mins => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'slot-btn';
+          btn.textContent = formatMins(mins);
+          btn.dataset.mins = String(mins);
+          btn.addEventListener('click', ()=>{
+            this.slotSelection = mins;
+            slotList.querySelectorAll('.slot-btn').forEach(el => el.classList.toggle('active', el === btn));
+          });
+          frag.appendChild(btn);
+        });
+        slotList.appendChild(frag);
+        if(slots.length === 1){
+          this.slotSelection = slots[0];
+          slotList.querySelector('.slot-btn')?.classList.add('active');
+        }
+      }
+      if(hintEl){
+        const duration = options?.duration ? `${options.duration} min` : '';
+        hintEl.textContent = duration ? `Select an available start (${duration}).` : 'Select an available start time.';
+      }
+    } else {
+      if(slotList){
+        slotList.hidden = true;
+        slotList.innerHTML = '';
+      }
+      if(wheelWrap) wheelWrap.hidden = false;
+      if(hintEl){
+        const duration = options?.duration ? `${options.duration} min` : '';
+        hintEl.textContent = duration ? `Choose a start time (${duration}).` : 'Choose a start time.';
+      }
+      const target = this.lastWheelSelection || activityTimeController.config.defaultSelection;
+      requestAnimationFrame(()=> activityTimeController.setSelection(target, true));
+    }
+
+    modal.hidden = false;
+  },
+  close(){
+    const modal = $$('#modal-activity');
+    if(modal) modal.hidden = true;
+    const slotList = $$('#activitySlotList');
+    if(slotList){ slotList.hidden = true; slotList.innerHTML = ''; }
+    const wheelWrap = $$('#activityWheelWrap');
+    if(wheelWrap) wheelWrap.hidden = false;
+    this.context = null;
+    this.slotMode = false;
+    this.slotSelection = null;
+    this.resolver = null;
+    this.rejector = null;
+  },
+  requestStart(options){
+    return new Promise((resolve, reject)=>{
+      this.resolver = resolve;
+      this.rejector = reject;
+      this.open(options);
+    });
+  },
+  confirm(){
+    let mins = null;
+    if(this.slotMode){
+      mins = this.slotSelection;
+    } else {
+      const sel = activityTimeController.read();
+      this.lastWheelSelection = sel;
+      mins = hhmmAPToMins(sel.hour, sel.minute, sel.period);
+    }
+    if(mins == null || Number.isNaN(mins)){
+      alert('Select a start time.');
+      return;
+    }
+    const resolve = this.resolver;
+    this.close();
+    resolve && resolve(mins);
+  },
+  cancel(){
+    const reject = this.rejector;
+    this.close();
+    reject && reject();
+  }
+};
+
+(function initActivityPicker(){
+  const modal = $$('#modal-activity');
+  const confirm = $$('#confirmActivityBtn');
+  activityTimeController.ensure();
+  confirm?.addEventListener('click', ()=> ActivityTimePicker.confirm());
+  modal?.addEventListener('click', (e)=>{
+    if(e.target.matches('[data-dismiss="modal"], .modal-backdrop')) ActivityTimePicker.cancel();
   });
 })();
 

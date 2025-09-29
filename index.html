@@ -68,7 +68,8 @@
         <div class="guests-title">Guests</div>
         <div class="guests-chips" id="guestsChips"></div>
         <div class="guests-actions">
-          <button class="btn small secondary" id="addGuestBtn">+ Add Guest</button>
+          <button class="btn small secondary" id="toggleAllGuests" type="button">Toggle All</button>
+          <button class="btn small secondary" id="addGuestBtn" type="button">Add guest</button>
         </div>
       </div>
 
@@ -109,6 +110,15 @@
           <div id="lunchHint" class="pill hint" hidden>Lunch window under 60 min (11–2)</div>
         </div>
         <button class="icon-btn round day-nav-btn" id="nextDay" title="Next day">›</button>
+      </div>
+
+      <div id="activitiesCatalog" class="activities-catalog" aria-live="polite">
+        <div class="catalog-title-row">
+          <div class="catalog-title">Available today</div>
+        </div>
+        <ul id="activitiesCatalogList" class="catalog-list">
+          <li class="empty">Loading activities…</li>
+        </ul>
       </div>
 
       <div class="add-row">
@@ -220,6 +230,32 @@
       <div class="modal-footer">
         <button class="btn secondary" data-dismiss="modal">Cancel</button>
         <button id="confirmSpaBtn" class="btn">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity Time Picker Modal -->
+  <div id="modal-activity" class="modal" hidden>
+    <div class="modal-backdrop" data-dismiss="modal"></div>
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="activityModalTitle">
+      <div class="modal-header">
+        <h3 id="activityModalTitle">Schedule Activity</h3>
+      </div>
+
+      <div class="modal-body">
+        <div id="activitySlotList" class="slot-list" hidden></div>
+        <div id="activityWheelWrap" class="wheel time-wheel">
+          <div id="activityHourCol" class="picker-col" aria-label="Hour"></div>
+          <div id="activityMinuteCol" class="picker-col" aria-label="Minute"></div>
+          <div id="activityPeriodCol" class="picker-col period-col" aria-label="Period"></div>
+          <div class="picker-mask"></div>
+        </div>
+        <div class="picker-hint" id="activityTimeHint"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn secondary" data-dismiss="modal">Cancel</button>
+        <button id="confirmActivityBtn" class="btn">Add</button>
       </div>
     </div>
   </div>
