@@ -1,4 +1,33 @@
-# Canonical activity dictionary (titles/locations/durations/pricing hints).
-# We'll populate this next. Keeping empty but valid.
-
-catalog: {}
+# Canonical activities dictionary
+# - slug is the stable key used by the schedule above
+# - duration_min informs timeline & overlap checks
+catalog:
+  guided-hike:
+    title: "Guided Hike"
+    duration_min: 90
+    location: "Trails"
+    capacity_hint: "Small group"
+    notes:
+      - "Trail selection depends on conditions."
+      - "Closed-toe shoes recommended."
+  archery:
+    title: "Archery"
+    duration_min: 60
+    location: "Range"
+    capacity_hint: "Small group"
+    notes:
+      - "Safety briefing included."
+  yoga:
+    title: "Morning Yoga"
+    duration_min: 60
+    location: "Wellness Lawn"
+    capacity_hint: "Group"
+    notes:
+      - "Mats provided."
+  mixology:
+    title: "Mixology Class"
+    duration_min: 60
+    location: "Bar"
+    capacity_hint: "Limited seats"
+    notes:
+      - "Must be 21+ for alcohol tasting."
