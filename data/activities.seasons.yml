@@ -1,0 +1,5 @@
+# Seasons define date windows and the weekly recurring schedule used during that window.
+# Day keys: mon,tue,wed,thu,fri,sat,sun. Times are 24h HH:MM local time.
+# We'll fill this in Wave 1 (data lift from PDFs). For now, keep the shape.
+
+seasons: []

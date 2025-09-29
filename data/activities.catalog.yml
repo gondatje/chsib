@@ -1,0 +1,4 @@
+# Canonical activity dictionary (titles/locations/durations/pricing hints).
+# We'll populate this next. Keeping empty but valid.
+
+catalog: {}
