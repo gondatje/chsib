@@ -102,11 +102,6 @@
       </div>
 
       <div class="panel-title">Activities</div>
-<!-- READ-ONLY: All activities scheduled for the selected day/season -->
-<div class="panel-subtitle">Available Today</div>
-<ul class="day-list" id="activitiesAvailList">
-  <li class="empty">Loading activities…</li>
-</ul>
 
       <div class="day-header">
         <button class="icon-btn round day-nav-btn" id="prevDay" title="Previous day">‹</button>
@@ -117,24 +112,13 @@
         <button class="icon-btn round day-nav-btn" id="nextDay" title="Next day">›</button>
       </div>
 
-      <div id="activitiesCatalog" class="activities-catalog" aria-live="polite">
-        <div class="catalog-title-row">
-          <div class="catalog-title">Available today</div>
-        </div>
-        <ul id="activitiesCatalogList" class="catalog-list">
-          <li class="empty">Loading activities…</li>
-        </ul>
-      </div>
-
       <div class="add-row">
         <button class="btn" id="addSpa">Spa Service</button>
         <button class="btn" id="addDinner">Dinner</button>
         <button class="btn ghost" id="addActivity">Activity</button>
       </div>
 
-      <ul class="day-list" id="dayList">
-        <li class="empty">No items for this day. Add one above.</li>
-      </ul>
+      <ul class="day-list activities-schedule" id="activitiesSchedule"></ul>
     </section>
 
     <!-- RIGHT: Preview -->

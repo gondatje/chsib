@@ -80,6 +80,26 @@ h1,h2,h3{ margin:0; }
 .row-top{ display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px; }
 .row-main{ flex:1 1 auto; }
 
+.activities-schedule{ margin-top:12px; }
+.activities-schedule li{ padding:12px 14px; display:flex; align-items:center; transition:transform .12s ease, box-shadow .18s ease; }
+.activity-check{ position:relative; display:flex; align-items:center; gap:14px; width:100%; cursor:pointer; }
+.activity-checkbox{ position:absolute; inset:0; opacity:0; pointer-events:none; }
+.activity-checkmark{ position:relative; width:24px; height:24px; border-radius:9px; border:1px solid rgba(0,0,0,.12); box-shadow:0 2px 4px rgba(0,0,0,.08) inset, 0 1px 2px rgba(255,255,255,.4);
+  background:linear-gradient(180deg,#fdfdfd 0%,#f3f4f6 100%); display:inline-flex; align-items:center; justify-content:center; transition: all .18s ease;
+}
+.activity-checkmark::after{ content:""; width:12px; height:12px; border-radius:4px; background:transparent; box-shadow:0 0 0 1px rgba(0,0,0,.08); transition: all .18s ease; }
+.activity-checkbox:checked + .activity-checkmark{ border-color:rgba(58,125,124,.6); background:linear-gradient(180deg,#4aa3a0 0%,#2f6f6c 100%);
+  box-shadow:0 4px 10px rgba(58,125,124,.32), 0 0 0 1px rgba(58,125,124,.35) inset; }
+.activity-checkbox:checked + .activity-checkmark::after{ background:#fff; box-shadow:none; width:10px; height:10px; border-radius:3px; }
+.activity-checkbox:disabled + .activity-checkmark{ opacity:.45; box-shadow:0 1px 3px rgba(0,0,0,.05) inset, 0 0 0 1px rgba(0,0,0,.08); }
+.activity-checkbox:disabled ~ .activity-text{ opacity:.7; }
+.activity-text{ display:flex; align-items:center; gap:10px; flex:1; font-size:15px; font-weight:600; color:var(--ink); }
+.activity-time{ font-variant-numeric:tabular-nums; white-space:nowrap; }
+.activity-sep{ opacity:.35; }
+.activity-title{ flex:1; }
+.activities-schedule li:hover{ box-shadow:0 6px 18px rgba(0,0,0,.08); transform:translateY(-1px); }
+.activities-schedule li:hover .activity-checkmark{ box-shadow:0 4px 10px rgba(58,125,124,.16), 0 0 0 1px rgba(58,125,124,.12) inset; }
+
 /* Preview */
 .preview .preview-body{ font-size:14px; line-height:1.45; }
 .preview .preview-heading{ font-size:15px; font-weight:800; text-decoration:underline; margin:6px 0; }
